@@ -13,6 +13,9 @@ app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI 
 def startup():
     core.seed()
     orchestration.preventive_scan()
+    if os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1':
+        from .demo_tls import serve
+        threading.Thread(target=serve,kwargs={'port':8443,'hostname':'service-01.demo.local'},daemon=True,name='aegis-local-tls-demo').start()
     interval=int(os.environ.get('AEGIS_SCAN_INTERVAL_SECONDS','0'))
     if interval>=30:
         def periodic_scans():
@@ -124,3 +127,11 @@ def standards_references():
 @app.get('/api/findings/enriched')
 def enriched_findings():
     return standards.findings_with_references()
+
+@app.get('/api/integrations')
+def integrations():
+    return {'acme':{'configured':False,'status':'requires external step-ca ACME server and challenge setup'},
+            'notifications':{'configured':bool(os.environ.get('AEGIS_NOTIFY_WEBHOOK_URL')),
+                             'channel':'https_webhook'},
+            'tls_demo':{'enabled':os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1',
+                        'endpoint':'127.0.0.1:8443'}}
