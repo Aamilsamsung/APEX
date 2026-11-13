@@ -31,4 +31,12 @@ def serve(port=8443, hostname='service-01.demo.local'):
                 if not active or active['id']!=last: break
         finally: server.server_close()
 
-if __name__=='__main__': serve()
+if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser(description='Authorized loopback TLS sandbox server')
+    parser.add_argument('--port',type=int,default=8443)
+    parser.add_argument('--hostname',default='service-01.demo.local')
+    args=parser.parse_args()
+    if not 1024<=args.port<=65535: parser.error('port must be between 1024 and 65535')
+    if not args.hostname.endswith('.demo.local'): parser.error('only sandbox demo.local hostnames are supported')
+    serve(port=args.port,hostname=args.hostname)
