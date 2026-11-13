@@ -46,3 +46,28 @@ def test_incident_steps_describe_real_sandbox_actions():
         'Owner notification failed',
     ))
     assert 'Owner notification simulated' not in titles
+
+
+def test_required_live_tls_failure_never_marks_incident_resolved(monkeypatch):
+    """PS2: failed redeployment verification must not become a successful recovery."""
+    cert=next(c for c in core.inventory() if c['hostname']=='service-01.demo.local')
+    incident=core.simulate_compromise(cert['id'])
+    monkeypatch.setenv('AEGIS_ENABLE_TLS_DEMO','1')
+    def unreachable(*args, **kwargs):
+        raise OSError('Sandbox TLS endpoint unavailable')
+    monkeypatch.setattr(core,'scan_tls_endpoint',unreachable)
+    with pytest.raises(RuntimeError,match='TLS deployment verification failed'):
+        core.approve_and_remediate(incident,'Demo Operator')
+    entry=next(i for i in core.incidents() if i['id']==incident)
+    assert entry['status']=='failed'
+    assert entry['resolved_at'] is None
+    assert any(e['action']=='remediation.deployment_verification_failed' for e in core.logs())
+
+
+def test_file_only_remediation_is_labeled_registry_only(monkeypatch):
+    monkeypatch.setenv('AEGIS_ENABLE_TLS_DEMO','0')
+    cert=next(c for c in core.inventory() if c['hostname']!='service-01.demo.local')
+    incident=core.simulate_compromise(cert['id'])
+    result=core.approve_and_remediate(incident,'Demo Operator')
+    assert result['status']=='resolved'
+    assert result['tls_verification']['status']=='sandbox_registry_only'
