@@ -106,6 +106,33 @@ def generate_cert(hostname, days=365, bits=2048, mismatch=False, expired=False):
     except OSError: pass
     return uid,str(certpath),str(keypath)
 
+
+def import_public_certificate(pem_text, hostname):
+    """Import only a public X.509 certificate into the isolated sandbox inventory."""
+    if not isinstance(pem_text,str) or len(pem_text)>65536:
+        raise ValueError('Certificate must be public PEM text under 64 KB')
+    if 'PRIVATE KEY' in pem_text or 'BEGIN CERTIFICATE' not in pem_text:
+        raise ValueError('Only a public PEM certificate is accepted; never upload private keys')
+    if not isinstance(hostname,str) or not (1<=len(hostname)<=253) or not all(
+        part and len(part)<=63 and all(ch.isalnum() or ch=='-' for ch in part) for part in hostname.split('.')
+    ):
+        raise ValueError('Enter a valid DNS hostname')
+    try:
+        cert=x509.load_pem_x509_certificate(pem_text.encode('ascii'))
+    except (ValueError,UnicodeError) as exc:
+        raise ValueError('Invalid X.509 PEM certificate') from exc
+    init_db()
+    uid=uuid.uuid4().hex[:12]
+    CERTS.mkdir(parents=True,exist_ok=True)
+    path=CERTS/f'{uid}.pem'
+    path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    with connect() as db:
+        db.execute('INSERT INTO certificates(id,hostname,path,key_path,source) VALUES(?,?,?,?,?)',
+                   (uid,hostname,str(path),'','uploaded-public-cert'))
+    audit('certificate.imported',{'id':uid,'hostname':hostname,'source':'public PEM upload','fingerprint':cert.fingerprint(hashes.SHA256()).hex()})
+    scan()
+    return {'certificate_id':uid,'hostname':hostname,'source':'uploaded-public-cert'}
+
 def seed():
     init_db()
     with LOCK:
@@ -206,6 +233,7 @@ def simulate_compromise(cert_id):
         with connect() as c:
             row=c.execute('SELECT * FROM certificates WHERE id=? AND active=1',(cert_id,)).fetchone()
             if not row: raise ValueError('Active certificate not found')
+            if row['source']=='uploaded-public-cert': raise ValueError('Imported certificates are scan-only; sandbox remediation requires a managed sandbox key')
             pending=c.execute('SELECT id FROM incidents WHERE certificate_id=? AND status IN ("pending_approval","approved","executing")',(cert_id,)).fetchone()
             if pending: raise ValueError('An incident is already open for this certificate')
             incident_id=uuid.uuid4().hex[:12]
