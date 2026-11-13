@@ -496,14 +496,25 @@ def explain_with_llm():
                 'note':'Every recommendation maps to a rule-generated finding; missing AI explanations are filled by deterministic guidance.'}
     except Exception as exc:
         status=getattr(exc,'code',None)
-        reason=('authentication_failed' if status in (401,403) else
+        provider_code=None
+        if isinstance(exc,urllib.error.HTTPError):
+            try:
+                error_body=json.loads(exc.read(4096).decode('utf-8','replace'))
+                provider_error=error_body.get('error',{}) if isinstance(error_body,dict) else {}
+                if isinstance(provider_error,dict):
+                    candidate=provider_error.get('code')
+                    if isinstance(candidate,str) and candidate in ('model_permission_blocked','model_not_found','invalid_api_key','invalid_request_error','permission_denied','organization_restricted','project_restricted','rate_limit_exceeded'):
+                        provider_code=candidate
+            except (ValueError,UnicodeError,OSError): pass
+        reason=('invalid_credentials' if status==401 else
+                'access_forbidden' if status==403 else
                 'rate_limited' if status==429 else
                 'model_or_request_rejected' if status in (400,404,422) else
                 'provider_unavailable' if status in (500,502,503,504) else
                 'timeout_or_network_error' if isinstance(exc,(TimeoutError,urllib.error.URLError)) else
                 'invalid_provider_response')
-        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason})
-        return {**fallback,'reason':reason,'http_status':status,'note':'Groq failed; deterministic guidance is active.'}
+        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason,'provider_code':provider_code})
+        return {**fallback,'reason':reason,'http_status':status,'provider_code':provider_code,'note':'Groq rejected the request (HTTP '+str(status)+'). Check Groq organization/project model permissions if 403.'}
 
 
 def seed_mock_ct():
