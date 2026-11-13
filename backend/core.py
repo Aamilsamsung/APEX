@@ -215,8 +215,25 @@ def scan():
                     fid=f"{cert['id']}:{finding['code']}"
                     c.execute('INSERT INTO findings(id,certificate_id,code,severity,message) VALUES(?,?,?,?,?)',
                               (fid,cert['id'],finding['code'],finding['severity'],finding['message']))
-        audit('scan.completed',{'certificates':len(certs),'scope':'registered local sandbox certificate files'})
-    return summary()
+        result=summary()
+        audit('scan.completed',{'certificates':len(certs),'scope':'registered local sandbox certificate files','health':result['health']})
+    return result
+
+
+def health_history(limit=60):
+    """Historical scores from actual completed scans, never synthesized."""
+    with connect() as db:
+        rows=db.execute("SELECT timestamp,details FROM audit WHERE action='scan.completed' ORDER BY id DESC LIMIT ?",(max(1,min(int(limit),200)),)).fetchall()
+    history=[]
+    for row in reversed(rows):
+        try:
+            data=json.loads(row['details'])
+            if isinstance(data.get('health'),int):
+                history.append({'timestamp':row['timestamp'],'health':data['health']})
+        except (ValueError,TypeError):
+            continue
+    return history
+
 
 def findings():
     with connect() as c: return [dict(r) for r in c.execute('SELECT * FROM findings ORDER BY CASE severity WHEN "critical" THEN 0 WHEN "high" THEN 1 WHEN "medium" THEN 2 ELSE 3 END,code')]
