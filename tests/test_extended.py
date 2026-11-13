@@ -71,3 +71,6 @@ def test_file_only_remediation_is_labeled_registry_only(monkeypatch):
     result=core.approve_and_remediate(incident,'Demo Operator')
     assert result['status']=='resolved'
     assert result['tls_verification']['status']=='sandbox_registry_only'
+    events=[entry['action'] for entry in core.logs()]
+    assert 'remediation.registry_updated' in events
+    assert 'remediation.deployment_verified' not in events
