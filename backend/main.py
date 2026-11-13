@@ -39,6 +39,8 @@ def startup():
 def health(): return {'ok':True,'sandbox':True}
 @app.get('/api/overview')
 def overview(): return core.summary()
+@app.get('/api/health-history')
+def health_history(): return core.health_history()
 @app.get('/api/certificates')
 def certificates(): return core.inventory()
 @app.get('/api/findings')
