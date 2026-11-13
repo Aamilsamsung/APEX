@@ -137,3 +137,29 @@ python -m backend.acme_client --hostname service-01.demo.local --directory https
 This cannot work by merely pushing GitHub code to a standard Render web service: the private CA, challenge routing, and trusted CA certificate must exist separately. Do not configure a public ACME directory for fake `.demo.local` names. The helper never exposes certificate issuance as a public API and reports only whether the subprocess succeeded. Fully automatic ACME issuance, revocation, and integration into the Responder still require provisioning and end-to-end validation.
 
 Run `python -m pytest -q` after pulling dependencies. No claim is made that the new integration tests have run on Render.
+
+## Required security configuration for public Render demo
+
+**Important:** Mutating endpoints now require `AEGIS_OPERATOR_TOKEN` when running on Render (or whenever `AEGIS_REQUIRE_OPERATOR_TOKEN=1`). Without this environment variable, mutating endpoints return HTTP 503 rather than allowing anonymous visitors to rotate certificates.
+
+1. In your existing Render service, add `AEGIS_OPERATOR_TOKEN` as a **secret environment variable** with a long random value. Never commit or paste this token into GitHub, the frontend, or a screenshot.
+2. Optionally set `AEGIS_ENABLE_TLS_DEMO=1` to enable the loopback TLS verification server; use a single worker for this sandbox.
+3. Redeploy/restart the service so Render picks up the latest code and settings.
+4. On the APEX homepage, click **Simulate incident** and enter the operator token when prompted. The browser keeps it in session storage only (closing the tab clears it). Do not use the demo on a shared device with a sensitive production token.
+5. Review the incident popup, approve in **Incident response**, and verify the audit events, replacement certificate and TLS verification status. The popup polls while the page is open.
+
+The operator token is a **hackathon demo gate**, not production authentication: it has no per-user roles, MFA, or rate limiting. Use only for isolated sandbox fixtures.
+
+### Final acceptance checklist
+
+- `GET /api/health` returns `ok: true`.
+- `GET /api/orchestration` shows scanner, risk analyst, detector, approval gate, responder.
+- `POST /api/scan` without token returns 401 when configured.
+- `POST /api/scan` with token succeeds.
+- Simulate compromise → popup appears → approve → new certificate and audit timeline appear.
+- With `AEGIS_ENABLE_TLS_DEMO=1`, incident for `service-01.demo.local` reports live TLS verification as `verified` (not merely `not_running`).
+- `GET /api/audit-integrity` returns `valid: true`.
+- `GET /api/integrations` accurately reports enabled integrations.
+- Run `python -m pytest -q` and fix failures before presenting.
+
+These checks are **not claimed to have passed on Render**. A live Render deployment and operator-owned settings are required for final verification.
