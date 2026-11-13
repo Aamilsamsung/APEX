@@ -446,10 +446,11 @@ def explain_with_llm():
     fs=findings()[:15]
     fallback=explain_deterministically()
     if not fs:
-        return {'mode':'deterministic-fallback','recommendations':[],
-                'note':'No rule-generated findings; nothing for the LLM to report.'}
+        return {'mode':'no-findings','recommendations':[],
+                'note':'No detected findings to send to Groq. The LLM has not been tested.'}
     key=os.environ.get('GROQ_API_KEY','').strip()
-    if not key: return fallback
+    if not key:
+        return {**fallback,'reason':'missing_api_key','note':'GROQ_API_KEY is missing from the running Render service.'}
     allowed={f['id']:f for f in fs}
     prompt=json.dumps([{'id':f['id'],'code':f['code'],'severity':f['severity'],
                         'message':f['message']} for f in fs])
@@ -494,8 +495,15 @@ def explain_with_llm():
         return {'mode':'groq-llm','recommendations':recommendations,
                 'note':'Every recommendation maps to a rule-generated finding; missing AI explanations are filled by deterministic guidance.'}
     except Exception as exc:
-        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':getattr(exc,'code',None)})
-        return fallback
+        status=getattr(exc,'code',None)
+        reason=('authentication_failed' if status in (401,403) else
+                'rate_limited' if status==429 else
+                'model_or_request_rejected' if status in (400,404,422) else
+                'provider_unavailable' if status in (500,502,503,504) else
+                'timeout_or_network_error' if isinstance(exc,(TimeoutError,urllib.error.URLError)) else
+                'invalid_provider_response')
+        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason})
+        return {**fallback,'reason':reason,'http_status':status,'note':'Groq failed; deterministic guidance is active.'}
 
 
 def seed_mock_ct():
