@@ -26,6 +26,7 @@ def test_history_preserves_changes_and_limits():
     core.simulate_compromise(cert["id"])
     core.scan()
     history = core.health_history()
-    assert len(history) == 2
-    assert history[1]["health"] <= history[0]["health"]
+    # simulate_compromise already performs a scan; the explicit scan is third.
+    assert len(history) == 3
+    assert history[-1]["health"] <= history[0]["health"]
     assert core.health_history(1) == history[-1:]
