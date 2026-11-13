@@ -51,9 +51,8 @@
     panel.hidden=true;toast.hidden=true;
     const incidentsNav=document.querySelector('[data-tab="incidents"]');
     incidentsNav?.click();
-    const cards=[...document.querySelectorAll('.incident-card')];
-    const index=(window.state?.incidents||[]).findIndex(i=>i.id===target.dataset.apexIncident);
-    (cards[index]||document.getElementById('incident-list'))?.scrollIntoView({behavior:'smooth',block:'start'});
+    const card=[...document.querySelectorAll('.incident-card')].find(el=>el.dataset.incidentId===target.dataset.apexIncident);
+    (card||document.getElementById('incident-list'))?.scrollIntoView({behavior:'smooth',block:'start'});
   });
   poll();
   setInterval(poll,12000);
