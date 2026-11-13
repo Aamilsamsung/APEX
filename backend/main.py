@@ -218,6 +218,21 @@ def worker_complete(job_id:str,body:WorkerResult,request:Request):
         cur=db.execute("UPDATE worker_jobs SET status=?,result=? WHERE id=? AND status='running'",
                        ('completed' if body.ok else 'failed',body.details,job_id))
         if not cur.rowcount: raise HTTPException(409,'Job not running')
+    with core.connect() as db:
+        job=db.execute('SELECT action,result FROM worker_jobs WHERE id=?',(job_id,)).fetchone()
+        if job and job['action']=='acme_recovery':
+            # The job's original result field holds the incident id until completion;
+            # completion overwrites it, so lookup via the approval audit event.
+            import json as _json
+            for entry in db.execute("SELECT details FROM audit WHERE action='remediation.local_acme_approved' ORDER BY id DESC"):
+                event=_json.loads(entry['details'])
+                if event.get('job_id')==job_id:
+                    incident_id=event['incident_id']
+                    db.execute('UPDATE incidents SET status=?,error=? WHERE id=? AND status="approved"',
+                               ('acme_issued_unverified_deployment' if body.ok else 'failed',
+                                'Local ACME issuance verified; CA revocation and deployment not performed' if body.ok else body.details,
+                                incident_id))
+                    break
     core.audit('worker.job.completed',{'job_id':job_id,'ok':body.ok,'details':body.details})
     return {'id':job_id,'status':'completed' if body.ok else 'failed'}
 
