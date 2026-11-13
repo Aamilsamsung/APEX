@@ -290,7 +290,9 @@ def approve_and_remediate(incident_id,actor):
                                 live_verification={'status':'verified','endpoint':'127.0.0.1:8443','serial':served['serial']}
                                 break
                         except (OSError,ssl.SSLError):
-                            if attempt==0: break
+                            # The demo TLS server may briefly close its socket while
+                            # loading the new certificate; retry through that handoff.
+                            pass
                         time.sleep(.2)
                     else: live_verification={'status':'failed','detail':'Running TLS endpoint did not serve replacement certificate'}
                 except Exception as exc: live_verification={'status':'failed','detail':str(exc)}
