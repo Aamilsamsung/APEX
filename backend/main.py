@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import core, orchestration
+from . import core, orchestration, openssl_checks
 
 app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI sandbox demonstration')
 
@@ -99,3 +99,20 @@ def ct_monitor(): return core.ct_monitor()
 def scan_local_tls():
     try: return core.scan_registered_endpoint()
     except (ValueError,OSError,ssl.SSLError) as exc: raise HTTPException(400,str(exc))
+
+@app.get('/api/certificates/{certificate_id}/openssl')
+def openssl_inspection(certificate_id: str):
+    try:
+        return openssl_checks.inspect_certificate(certificate_id)
+    except ValueError as exc:
+        raise HTTPException(404,str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(503,str(exc))
+
+@app.get('/api/orchestration')
+def orchestration_status():
+    return {'framework':'LangGraph',
+            'preventive':['scanner','risk_analyst'],
+            'reactive':['detector','approval_gate','responder'],
+            'approval_boundary':'Responder runs only after explicit approval endpoint invocation',
+            'scope':'local sandbox'}
