@@ -18,6 +18,5 @@ jobs:
       - name: Run all tests
         env:
           AEGIS_DATA_DIR: ${{ runner.temp }}/aegis-test-data
-          AEGIS_OPERATOR_TOKEN: ci-test-operator-token
           AEGIS_ENABLE_TLS_DEMO: '0'
         run: python -m pytest -q
