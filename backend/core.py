@@ -399,16 +399,25 @@ def scan_tls_endpoint(host='127.0.0.1', port=8443, expected_hostname=None):
             'revoked':verify_revocation(format(cert.serial_number,'x'))}
 
 def explain_with_llm():
-    """Optional Groq OpenAI-compatible endpoint; strict grounding to known finding IDs."""
+    """Explain and rank ONLY deterministic findings. LLM never creates findings."""
     fs=findings()[:15]
     fallback=explain_deterministically()
+    if not fs:
+        return {'mode':'deterministic-fallback','recommendations':[],
+                'note':'No rule-generated findings; nothing for the LLM to report.'}
     key=os.environ.get('GROQ_API_KEY','').strip()
     if not key: return fallback
     allowed={f['id']:f for f in fs}
-    prompt=json.dumps([{'id':f['id'],'code':f['code'],'severity':f['severity'],'message':f['message']} for f in fs])
+    prompt=json.dumps([{'id':f['id'],'code':f['code'],'severity':f['severity'],
+                        'message':f['message']} for f in fs])
     request={'model':os.environ.get('GROQ_MODEL','openai/gpt-oss-20b'),
        'temperature':0,'response_format':{'type':'json_object'},
-       'messages':[{'role':'system','content':'You explain verified PKI findings. Return ONLY JSON object {"recommendations":[{"finding_id":"exact existing ID","explanation":"one concise remediation explanation"}]}. Never add findings or invent evidence. Never include credentials.'},
+       'messages':[{'role':'system','content':(
+           'You are a PKI risk analyst. Rank ONLY the supplied verified findings. '
+           'Return JSON object {"recommendations":[{"finding_id":"exact supplied ID",'
+           '"priority":1,"explanation":"plain-language explanation tied to supplied evidence"}]}. '
+           'Priority 1 is most urgent; use unique integer ranks. Do not add findings, '
+           'change severities, invent evidence, or include credentials.')},
                    {'role':'user','content':prompt}]}
     try:
         req=urllib.request.Request('https://api.groq.com/openai/v1/chat/completions',
@@ -416,14 +425,25 @@ def explain_with_llm():
         with urllib.request.urlopen(req,timeout=8) as response:
             body=json.load(response)
         parsed=json.loads(body['choices'][0]['message']['content'])
-        recommendations=[]; seen=set()
-        for item in parsed.get('recommendations',[]):
+        items=parsed.get('recommendations',[])
+        if not isinstance(items,list): raise ValueError('Recommendations must be a list')
+        recommendations=[]; seen=set(); ranks=set()
+        for item in items:
+            if not isinstance(item,dict): continue
             fid=item.get('finding_id'); explanation=item.get('explanation','')
-            if fid in allowed and fid not in seen and isinstance(explanation,str) and 5<=len(explanation)<=500:
-                recommendations.append({'finding_id':fid,'severity':allowed[fid]['severity'],'explanation':explanation})
-                seen.add(fid)
-        if not recommendations and fs: raise ValueError('LLM returned no grounded recommendations')
-        return {'mode':'groq-llm','recommendations':recommendations,'note':'Only pre-verified finding IDs accepted'}
+            priority=item.get('priority')
+            if fid not in allowed or fid in seen or not isinstance(explanation,str) or not (5<=len(explanation)<=500):
+                continue
+            if isinstance(priority,bool) or not isinstance(priority,int) or priority<1 or priority>len(fs) or priority in ranks:
+                continue
+            recommendations.append({'finding_id':fid,'severity':allowed[fid]['severity'],
+                                    'priority':priority,'explanation':explanation})
+            seen.add(fid); ranks.add(priority)
+        if len(recommendations)!=len(fs) or set(ranks)!=set(range(1,len(fs)+1)):
+            raise ValueError('LLM ranking incomplete, invalid or ungrounded')
+        recommendations.sort(key=lambda r:r['priority'])
+        return {'mode':'groq-llm','recommendations':recommendations,
+                'note':'Every recommendation maps to a rule-generated finding; LLM priority is advisory.'}
     except Exception as exc:
         audit('llm.fallback',{'error_type':type(exc).__name__})
         return fallback
