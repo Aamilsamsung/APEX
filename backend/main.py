@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, ssl
+import os, ssl, threading, time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -13,6 +13,14 @@ app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI 
 def startup():
     core.seed()
     core.scan()
+    interval=int(os.environ.get('AEGIS_SCAN_INTERVAL_SECONDS','0'))
+    if interval>=30:
+        def periodic_scans():
+            while True:
+                time.sleep(interval)
+                try: core.scan()
+                except Exception as exc: core.audit('scan.failed',{'error':type(exc).__name__})
+        threading.Thread(target=periodic_scans,daemon=True,name='aegis-preventive-scanner').start()
 
 @app.get('/api/health')
 def health(): return {'ok':True,'sandbox':True}
