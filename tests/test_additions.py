@@ -16,3 +16,14 @@ def test_extended_risk_rules():
     assert 'LONG_VALIDITY' in {f['code'] for f in core.assess(base)}
     base['self_signed']=True
     assert 'UNEXPECTED_SELF_SIGNED' in {f['code'] for f in core.assess(base)}
+
+
+def test_audit_integrity_checks_the_displayed_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, 'DATA', tmp_path)
+    monkeypatch.setattr(core, 'DB', tmp_path / 'audit.sqlite')
+    core.init_db()
+    core.audit('test.integrity', {'expected': True})
+    assert core.verify_audit_chain()['valid']
+    with core.connect() as db:
+        db.execute("UPDATE audit SET details = '{}'")
+    assert not core.verify_audit_chain()['valid']

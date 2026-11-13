@@ -1,13 +1,13 @@
 """AEGIS PKI: local, authorized certificate security sandbox."""
 from __future__ import annotations
-import json, os, sqlite3, ssl, socket, threading, uuid, urllib.request, urllib.error, fnmatch, hashlib, time
+import json, os, sqlite3, ssl, socket, threading, uuid, urllib.request, urllib.error, hashlib, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives.asymmetric import padding
+from .chains import dns_matches, validate_bundle
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.getenv('AEGIS_DATA_DIR', str(ROOT / 'data')))
@@ -50,6 +50,16 @@ def audit(action,details):
 def verify_audit_chain():
     prev='GENESIS'
     with connect() as c:
+        c.execute('BEGIN')
+        mismatch=c.execute('''SELECT min(id) FROM (
+            SELECT audit.id FROM audit LEFT JOIN audit_chain USING(id)
+            WHERE audit_chain.id IS NULL OR audit.timestamp != audit_chain.timestamp
+                OR audit.action != audit_chain.action OR audit.details != audit_chain.details
+            UNION ALL
+            SELECT audit_chain.id FROM audit_chain LEFT JOIN audit USING(id) WHERE audit.id IS NULL
+        )''').fetchone()[0]
+        if mismatch is not None:
+            return {'valid':False,'failed_at':mismatch}
         for row in c.execute('SELECT * FROM audit_chain ORDER BY id'):
             expected=hashlib.sha256(json.dumps([row['timestamp'],row['action'],row['details'],prev],separators=(',',':')).encode()).hexdigest()
             if row['prev_hash']!=prev or row['entry_hash']!=expected: return {'valid':False,'failed_at':row['id']}
@@ -118,14 +128,15 @@ def import_public_certificate(pem_text, hostname):
     ):
         raise ValueError('Enter a valid DNS hostname')
     try:
-        cert=x509.load_pem_x509_certificate(pem_text.encode('ascii'))
+        chain=x509.load_pem_x509_certificates(pem_text.encode('ascii'))
+        cert=chain[0]
     except (ValueError,UnicodeError) as exc:
         raise ValueError('Invalid X.509 PEM certificate') from exc
     init_db()
     uid=uuid.uuid4().hex[:12]
     CERTS.mkdir(parents=True,exist_ok=True)
     path=CERTS/f'{uid}.pem'
-    path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    path.write_bytes(b''.join(item.public_bytes(serialization.Encoding.PEM) for item in chain))
     with connect() as db:
         db.execute('INSERT INTO certificates(id,hostname,path,key_path,source) VALUES(?,?,?,?,?)',
                    (uid,hostname,str(path),'','uploaded-public-cert'))
@@ -152,16 +163,21 @@ def seed():
     return True
 
 def describe(row):
-    cert=x509.load_pem_x509_certificate(Path(row['path']).read_bytes())
+    bundle=Path(row['path']).read_bytes()
+    chain=x509.load_pem_x509_certificates(bundle)
+    cert=chain[0]
     key=cert.public_key()
     try: sans=cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
     except x509.ExtensionNotFound: sans=[]
     ca_cert,_ = ensure_ca()
     try:
-        ca_cert.public_key().verify(cert.signature, cert.tbs_certificate_bytes, padding.PKCS1v15(), cert.signature_hash_algorithm)
-        chain_valid = cert.issuer == ca_cert.subject
-    except Exception: chain_valid = False
-    return {'chain_valid':chain_valid,'id':row['id'],'hostname':row['hostname'],'subject':cert.subject.rfc4514_string(),
+        chain_valid, chain_error = validate_bundle(bundle, ca_cert.public_bytes(serialization.Encoding.PEM))
+    except RuntimeError as exc:
+        chain_valid, chain_error = None, str(exc)
+    return {'chain_valid':chain_valid,'chain_error':chain_error,
+            'chain':[item.subject.rfc4514_string() for item in chain],
+            'not_before':cert.not_valid_before_utc.isoformat(),
+            'id':row['id'],'hostname':row['hostname'],'subject':cert.subject.rfc4514_string(),
             'issuer':cert.issuer.rfc4514_string(),'sans':sans,
             'expires_at':cert.not_valid_after_utc.isoformat(),'days_remaining':int((cert.not_valid_after_utc-now()).total_seconds()/86400),
             'key_type':'RSA' if isinstance(key,rsa.RSAPublicKey) else 'EC' if isinstance(key,ec.EllipticCurvePublicKey) else 'Other',
@@ -180,22 +196,24 @@ def assess(cert):
     results=[]
     def add(code,severity,msg): results.append({'code':code,'severity':severity,'message':msg})
     days=cert['days_remaining']
-    if days < 0: add('EXPIRED','critical','Certificate has expired')
+    if days < 0 or (cert.get('expires_at') and datetime.fromisoformat(cert['expires_at']) <= now()): add('EXPIRED','critical','Certificate has expired')
     elif days <= 7: add('EXPIRING_7D','high',f'Certificate expires in {days} days')
     elif days <= 14: add('EXPIRING_14D','medium',f'Certificate expires in {days} days')
     elif days <= 30: add('EXPIRING_30D','low',f'Certificate expires in {days} days')
     if cert['key_type']=='RSA' and cert['key_bits']<2048: add('WEAK_RSA','critical',f"RSA-{cert['key_bits']} is below 2048 bits")
     if cert['signature'].lower() in ('sha1','md5'): add('WEAK_SIGNATURE','critical','Weak certificate signature hash')
-    if not any(name==cert['hostname'] or (name.startswith('*.') and cert['hostname'].endswith(name[1:]) and cert['hostname'].count('.')==name.count('.')) for name in cert['sans']): add('HOSTNAME_MISMATCH','high','Expected hostname is absent from SANs')
-    if cert.get('chain_valid') is False: add('INVALID_CHAIN','critical','Certificate signature does not verify against sandbox CA')
+    if not any(dns_matches(cert['hostname'], name) for name in cert['sans']): add('HOSTNAME_MISMATCH','high','Expected hostname is absent from SANs')
+    if cert.get('chain_valid') is False: add('INVALID_CHAIN','critical',cert.get('chain_error') or 'Certificate path does not verify against sandbox CA')
+    if cert.get('chain_valid', True) is None: add('CHAIN_CHECK_UNAVAILABLE','high',cert['chain_error'])
+    if cert.get('not_before') and datetime.fromisoformat(cert['not_before']) > now():
+        add('NOT_YET_VALID','high','Certificate validity has not started')
     if cert.get('self_signed'): add('UNEXPECTED_SELF_SIGNED','critical','Leaf certificate is self-signed instead of sandbox CA-issued')
     if cert.get('validity_days',0)>398: add('LONG_VALIDITY','medium','Certificate validity exceeds sandbox policy of 398 days')
     wildcards=[name for name in cert['sans'] if name.startswith('*.')]
     if wildcards:
         # A wildcard must match exactly one DNS label, not arbitrary subdomains.
         valid_wildcard=any(
-            cert['hostname'].endswith(name[1:]) and
-            cert['hostname'].count('.')==name.count('.')
+            dns_matches(cert['hostname'], name)
             for name in wildcards
         )
         if not valid_wildcard:
@@ -210,8 +228,16 @@ def scan():
         certs=inventory()
         with connect() as c:
             c.execute('DELETE FROM findings')
+            wildcard_deployments={}
             for cert in certs:
-                for finding in assess(cert):
+                if any(name.startswith('*.') for name in cert['sans']):
+                    wildcard_deployments.setdefault(cert['fingerprint'],set()).add(cert['hostname'])
+            for cert in certs:
+                checks=assess(cert)
+                if len(wildcard_deployments.get(cert['fingerprint'], ())) > 1:
+                    checks.append({'code':'WILDCARD_REUSE','severity':'high',
+                                   'message':'The same wildcard certificate is registered to multiple sandbox services'})
+                for finding in checks:
                     fid=f"{cert['id']}:{finding['code']}"
                     c.execute('INSERT INTO findings(id,certificate_id,code,severity,message) VALUES(?,?,?,?,?)',
                               (fid,cert['id'],finding['code'],finding['severity'],finding['message']))
@@ -305,6 +331,7 @@ def approve_and_remediate(incident_id,actor):
             audit('remediation.revoked',{'incident_id':incident_id,'old_serial':old['serial'],'mechanism':'sandbox revocation registry'})
             # A live endpoint is optional; when present, verify the actual TLS-served certificate.
             live_verification={'status':'not_running','detail':'No local TLS endpoint was registered for this certificate'}
+            requires_live_tls = os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1' and old['hostname']=='service-01.demo.local'
             if old['hostname']=='service-01.demo.local':
                 try:
                     for attempt in range(20):
@@ -318,19 +345,20 @@ def approve_and_remediate(incident_id,actor):
                             # loading the new certificate; retry through that handoff.
                             pass
                         time.sleep(.2)
-                    else: live_verification={'status':'failed','detail':'Running TLS endpoint did not serve replacement certificate'}
+                    else: live_verification={'status':'failed' if requires_live_tls else 'not_running','detail':'Replacement was not observed on loopback TLS'}
                 except Exception as exc: live_verification={'status':'failed','detail':str(exc)}
             # Never claim a live deployment succeeded when endpoint verification failed.
             # In file-only sandbox mode, explicitly distinguish registry replacement from TLS deployment.
-            requires_live_tls = os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1' and old['hostname']=='service-01.demo.local'
             if requires_live_tls and live_verification['status']!='verified':
                 audit('remediation.deployment_verification_failed',{'incident_id':incident_id,**live_verification})
                 raise RuntimeError('Required TLS deployment verification failed; incident cannot be resolved')
             if live_verification['status']=='not_running':
                 live_verification={'status':'sandbox_registry_only','detail':'Replacement certificate registered and validated in sandbox; no live TLS deployment verified'}
                 audit('remediation.registry_updated',{'incident_id':incident_id,**live_verification})
-            else:
+            elif live_verification['status']=='verified':
                 audit('remediation.deployment_verified',{'incident_id':incident_id,**live_verification})
+            else:
+                audit('remediation.deployment_verification_failed',{'incident_id':incident_id,**live_verification})
             with connect() as c:
                 c.execute('UPDATE incidents SET status="resolved",resolved_at=? WHERE id=?',(timestamp(),incident_id))
             from .notifications import notify
@@ -378,7 +406,7 @@ def remediation_steps(incident_id):
             step('Replacement certificate issued','The local sandbox CA signed a replacement certificate with the original hostname.',at)
             step('Active certificate updated','The active inventory pointer was changed. The optional demo TLS server reloads on its next request.',at)
             step('Certificate properties verified','The replacement was checked for expiry, key strength and matching SAN; this is not proof of live TLS redeployment.',at)
-        elif action in ('remediation.deployment_verified','remediation.registry_updated'):
+        elif action in ('remediation.deployment_verified','remediation.registry_updated','remediation.deployment_verification_failed'):
             deployment = {**data, 'timestamp': at}
             step('Sandbox registry update' if action=='remediation.registry_updated' else 'Live TLS deployment check', 'Status: '+data['status']+'. '+(data.get('detail') or ('Verified endpoint '+data.get('endpoint',''))),at)
         elif action in ('notification.delivery','remediation.notification_result'):
@@ -440,15 +468,23 @@ def scan_tls_endpoint(host='127.0.0.1', port=8443, expected_hostname=None):
         with context.wrap_socket(sock,server_hostname=expected_hostname or 'localhost') as tls:
             der=tls.getpeercert(binary_form=True)
     cert=x509.load_der_x509_certificate(der)
-    ca,_=ensure_ca()
+    trusted=False
+    verified_context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    verified_context.check_hostname=False
+    verified_context.load_verify_locations(cafile=str(CERTS/'sandbox-ca.pem'))
     try:
-        ca.public_key().verify(cert.signature,cert.tbs_certificate_bytes,padding.PKCS1v15(),cert.signature_hash_algorithm)
-        trusted=cert.issuer==ca.subject
-    except Exception: trusted=False
-    sans=cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+        with socket.create_connection((host,port),timeout=3) as sock:
+            with verified_context.wrap_socket(sock,server_hostname=expected_hostname or 'localhost') as tls:
+                trusted=tls.getpeercert(binary_form=True)==der
+    except ssl.SSLCertVerificationError:
+        pass
+    try:
+        sans=cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+    except x509.ExtensionNotFound:
+        sans=[]
     return {'endpoint':f'{host}:{port}','fingerprint':cert.fingerprint(hashes.SHA256()).hex(),
             'serial':format(cert.serial_number,'x'),'chain_valid':trusted,
-            'hostname_valid':any(fnmatch.fnmatchcase(expected_hostname or '',san) for san in sans),
+            'hostname_valid':any(dns_matches(expected_hostname or '',san) for san in sans),
             'expires_at':cert.not_valid_after_utc.isoformat(),
             'revoked':verify_revocation(format(cert.serial_number,'x'))}
 
@@ -548,7 +584,7 @@ def explain_with_llm():
                 'timeout_or_network_error' if isinstance(exc,(TimeoutError,urllib.error.URLError)) else
                 'invalid_provider_response')
         audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason,'provider_code':provider_code,'provider_hint':provider_hint})
-        return {**fallback,'reason':reason,'http_status':status,'provider_code':provider_code,'note':'Groq rejected the request (HTTP '+str(status)+'). Check Groq organization/project model permissions if 403.'}
+        return {**fallback,'reason':reason,'http_status':status,'provider_code':provider_code,'provider_hint':provider_hint,'note':'Groq rejected the request (HTTP '+str(status)+'). Check Groq organization/project model permissions if 403.'}
 
 
 def seed_mock_ct():
@@ -563,7 +599,10 @@ def ct_monitor():
     with connect() as c:
         registered={r['hostname'] for r in c.execute('SELECT hostname FROM certificates WHERE active=1')}
         rows=[dict(r) for r in c.execute('SELECT * FROM ct_feed')]
-    return [{'id':r['id'],'hostname':r['hostname'],'issuer':r['issuer'], 'status': 'suspected_rogue' if not r['authorized'] or r['hostname'] not in registered else 'known', 'source':'mock CT replay'} for r in rows]
+    expected_issuer=ensure_ca()[0].subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+    return [{'id':r['id'],'hostname':r['hostname'],'issuer':r['issuer'],
+             'status':'suspected_rogue' if not r['authorized'] or r['hostname'] not in registered
+             or r['issuer'] != expected_issuer else 'known','source':'mock CT replay'} for r in rows]
 
 def scan_registered_endpoint():
     """Scan only a fixed, authorized local endpoint; never an arbitrary remote target."""

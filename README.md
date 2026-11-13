@@ -163,3 +163,52 @@ The operator token is a **hackathon demo gate**, not production authentication: 
 - Run `python -m pytest -q` and fix failures before presenting.
 
 These checks are **not claimed to have passed on Render**. A live Render deployment and operator-owned settings are required for final verification.
+
+
+## Praxis 2.0 demo runbook
+
+The Render dashboard uses 30 generated sandbox certificates, a mock CT feed,
+a sandbox revocation registry, and an optional real loopback TLS socket.
+The separate local Smallstep workflow requires an existing disposable private
+CA and an installed Certbot lineage for `service-01.demo.local`.
+The Render HTTPS certificate is outside both workflows.
+
+### Dashboard walkthrough
+
+1. Open the dashboard, note the health score and inventory count, and open a
+   deterministic finding. Verify the formula through `GET /api/overview`.
+2. Show Diagnostics. The mock feed should flag `rogue.demo.local`, and the
+   audit-chain check should verify. If Groq returns 403, show the rule-based
+   explanations and the available provider hint.
+3. Click **Simulate incident** and confirm `service-01.demo.local`. Use the
+   demo operator token privately. Show the health change, compromise evidence,
+   and pending approval before taking any action.
+4. Click **Approve & remediate** and enter the operator name. Open the timeline
+   and compare serials, fingerprints, and the TLS result. With the loopback
+   server running, use **Check local TLS server** to confirm the new serial.
+5. Show notification status, then the audit trail and recovered health
+   score. Delivery requires a configured HTTPS webhook.
+
+### Local Smallstep walkthrough
+
+In the authorized WSL sandbox, confirm the private ACME directory at
+`https://localhost:9000/acme/acme/directory`, the trusted local root,
+HTTP-01 challenge routing, the existing Certbot lineage, and port 8443
+availability. Preflight with `sudo python -m backend.local_worker --check`
+using the Python interpreter where project dependencies are installed.
+
+Explicitly approve the local operation and run:
+
+```bash
+sudo /path/to/venv/bin/python -m backend.acme_recovery   --rotate-and-deploy --ca-root /path/to/sandbox-root.pem --approve-revocation
+```
+
+The helper pins the demo hostname and CA directory. It validates the old
+lineage against the supplied root, requires both a new key and a new serial,
+serves the new leaf and intermediates on loopback, and checks the served
+fingerprint with a trusted TLS handshake. It requests revocation of the old
+certificate only after deployment verification to avoid taking the demo
+offline. Check the actual local CA revocation record before attesting in
+the dashboard. The separate cloud-triggered ACME worker still supports
+issuance only. Local end-to-end CA acceptance and notifications require
+verification on the target sandbox.

@@ -108,7 +108,7 @@ def rotate_demo_certificate(directory: str) -> tuple[bool, str]:
 
 
 
-def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int = 8443) -> bool:
+def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int = 8443, *, ca_file: Path | None = None) -> bool:
     """Read-only comparison of local PEM and certificate served by loopback TLS."""
     import hashlib
     import socket
@@ -120,8 +120,12 @@ def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int
         pem = Path(cert_path).read_bytes()
         expected = x509.load_pem_x509_certificate(pem)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE  # Local demo CA: compare DER fingerprint explicitly.
+        if ca_file is None:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        else:
+            ctx.hostname_checks_common_name = False
+            ctx.load_verify_locations(cafile=str(ca_file))
         with socket.create_connection((host, port), timeout=5) as raw:
             with ctx.wrap_socket(raw, server_hostname="service-01.demo.local") as tls:
                 der = tls.getpeercert(binary_form=True)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from . import core
+from .chains import validate_bundle
 
 def inspect_certificate(certificate_id: str) -> dict:
     with core.connect() as db:
@@ -27,7 +28,9 @@ def inspect_certificate(certificate_id: str) -> dict:
     details=run(['x509','-in',str(path),'-noout','-subject','-issuer','-dates',
                  '-serial','-fingerprint','-sha256','-text'])
     # Verify against the private sandbox CA, not the operating system trust store.
-    chain=run(['verify','-CAfile',str(ca_path),str(path)])
+    core.ensure_ca()
+    valid, error = validate_bundle(path.read_bytes(), ca_path.read_bytes())
+    chain = {'ok': valid, 'output': error or 'Sandbox issuer path verified'}
     core.audit('openssl.certificate.inspected',
                {'certificate_id':certificate_id,'chain_valid':chain['ok']})
     return {'certificate_id':certificate_id,'details':details,

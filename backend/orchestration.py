@@ -27,7 +27,12 @@ def scanner(state: PKIState) -> dict:
 
 def analyst(state: PKIState) -> dict:
     findings=core.findings()
-    core.audit('agent.risk_analyst.completed', {'findings':len(findings),'health':state.get('health')})
+    ct = core.ct_monitor()
+    core.audit('agent.risk_analyst.completed', {
+        'findings': len(findings), 'health': state.get('health'),
+        'ct_mode': 'mock CT replay',
+        'suspected_ct_entries': [entry['id'] for entry in ct if entry['status'] == 'suspected_rogue'],
+    })
     return {'findings_count':len(findings),'status':'scanned'}
 
 def detect(state: PKIState) -> dict:
