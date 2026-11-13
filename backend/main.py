@@ -218,6 +218,7 @@ def worker_complete(job_id:str,body:WorkerResult,request:Request):
         cur=db.execute("UPDATE worker_jobs SET status=?,result=? WHERE id=? AND status='running'",
                        ('completed' if body.ok else 'failed',body.details,job_id))
         if not cur.rowcount: raise HTTPException(409,'Job not running')
+    incident_id=None
     with core.connect() as db:
         job=db.execute('SELECT action,result FROM worker_jobs WHERE id=?',(job_id,)).fetchone()
         if job and job['action']=='acme_recovery':
@@ -233,7 +234,7 @@ def worker_complete(job_id:str,body:WorkerResult,request:Request):
                                 'Local ACME issuance verified; CA revocation and deployment not performed' if body.ok else body.details,
                                 incident_id))
                     break
-    core.audit('worker.job.completed',{'job_id':job_id,'ok':body.ok,'details':body.details})
+    core.audit('worker.job.completed',{'job_id':job_id,'action':job['action'] if job else None,'incident_id':incident_id,'ok':body.ok,'details':body.details})
     return {'id':job_id,'status':'completed' if body.ok else 'failed'}
 
 # Separate explicit operator authorization for local ACME recovery.
