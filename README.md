@@ -111,3 +111,11 @@ Install updated dependencies with `python -m pip install -r requirements.txt`. T
 Install the **OpenSSL command-line program** separately and ensure `openssl version` works. `GET /api/certificates/{certificate_id}/openssl` returns public X.509 inspection and `openssl verify` against the local sandbox CA. The command never passes private keys or arbitrary remote hosts. Imported certificates signed by other CAs will generally fail sandbox CA verification as expected. OpenSSL is optional for application startup but required for that endpoint.
 
 Run `python -m pytest -q` after installing requirements. These integrations need to be tested on your target Windows environment before the hackathon; no CI result is claimed here. ACME, real notification delivery, authenticated approval and production-grade agent isolation are still not implemented.
+
+## PS2 standards reference integrations (Render-safe)
+
+- `GET /api/standards` lists the NIST SP 800-57 key-management reference, MITRE ATT&CK resource, and honest ACME/CT statuses.
+- `GET /api/findings/enriched` augments real deterministic findings with relevant NIST guidance and MITRE technique references. These are educational classifications, not evidence that a real attack occurred.
+- Existing sandbox CT replay remains supported; live crt.sh requests are not performed by default.
+- ACME and Smallstep step-ca are **not** silently enabled: both require a running authorized CA, secure provisioning, and a verified issuance/revocation workflow. No production CA credentials should be stored in Git.
+- Render's ephemeral filesystem may reset the SQLite database and generated CA keys across deployments. Use persistent storage or a managed database for state continuity. Never expose unauthenticated approval endpoints to untrusted users.
