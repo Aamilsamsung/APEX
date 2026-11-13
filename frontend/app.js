@@ -97,3 +97,18 @@ async function showDiagnostics(){
   }catch(e){notice('Diagnostics: '+e.message,true)}
 }
 showDiagnostics();
+
+document.getElementById('certificate-import-form')?.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const file=document.getElementById('import-file').files[0];
+  const hostname=document.getElementById('import-hostname').value.trim().toLowerCase();
+  if(!file)return;
+  if(file.size>65536)return notice('Public certificate file must be under 64 KB.',true);
+  try{
+    const pem=await file.text();
+    const result=await api('certificates/import',{method:'POST',body:JSON.stringify({hostname,pem})});
+    await refresh();
+    notice('Imported and scanned public certificate for '+result.hostname);
+    event.target.reset();
+  }catch(error){notice('Import failed: '+error.message,true)}
+});
