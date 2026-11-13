@@ -328,7 +328,9 @@ def approve_and_remediate(incident_id,actor):
                 raise RuntimeError('Required TLS deployment verification failed; incident cannot be resolved')
             if live_verification['status']=='not_running':
                 live_verification={'status':'sandbox_registry_only','detail':'Replacement certificate registered and validated in sandbox; no live TLS deployment verified'}
-            audit('remediation.deployment_verified',{'incident_id':incident_id,**live_verification})
+                audit('remediation.registry_updated',{'incident_id':incident_id,**live_verification})
+            else:
+                audit('remediation.deployment_verified',{'incident_id':incident_id,**live_verification})
             with connect() as c:
                 c.execute('UPDATE incidents SET status="resolved",resolved_at=? WHERE id=?',(timestamp(),incident_id))
             from .notifications import notify
@@ -376,9 +378,9 @@ def remediation_steps(incident_id):
             step('Replacement certificate issued','The local sandbox CA signed a replacement certificate with the original hostname.',at)
             step('Active certificate updated','The active inventory pointer was changed. The optional demo TLS server reloads on its next request.',at)
             step('Certificate properties verified','The replacement was checked for expiry, key strength and matching SAN; this is not proof of live TLS redeployment.',at)
-        elif action=='remediation.deployment_verified':
+        elif action in ('remediation.deployment_verified','remediation.registry_updated'):
             deployment = {**data, 'timestamp': at}
-            step('Live TLS deployment check', 'Status: '+data['status']+'. '+(data.get('detail') or ('Verified endpoint '+data.get('endpoint',''))),at)
+            step('Sandbox registry update' if action=='remediation.registry_updated' else 'Live TLS deployment check', 'Status: '+data['status']+'. '+(data.get('detail') or ('Verified endpoint '+data.get('endpoint',''))),at)
         elif action in ('notification.delivery','remediation.notification_result'):
             # Both events can describe the same delivery attempt; show it once.
             if action=='notification.delivery':
