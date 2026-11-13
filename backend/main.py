@@ -1,11 +1,21 @@
 from __future__ import annotations
-import os, ssl, threading, time
+import os, ssl, threading, time, secrets
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from . import core, orchestration, openssl_checks, standards
+
+def require_operator(request: Request):
+    expected=os.environ.get('AEGIS_OPERATOR_TOKEN','')
+    if not expected:
+        if os.environ.get('RENDER') or os.environ.get('AEGIS_REQUIRE_OPERATOR_TOKEN')=='1':
+            raise HTTPException(503,'Operator token not configured on server')
+        return
+    provided=request.headers.get('X-Aegis-Operator-Token','')
+    if not secrets.compare_digest(provided,expected):
+        raise HTTPException(401,'Operator token required')
 
 app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI sandbox demonstration')
 
@@ -44,13 +54,16 @@ def audit(): return core.logs()
 @app.get('/api/explanations')
 def explanations(): return core.explain_with_llm()
 @app.post('/api/scan')
-def scan(): return orchestration.preventive_scan()
+def scan(request:Request):
+    require_operator(request)
+    return orchestration.preventive_scan()
 class CertificateImport(BaseModel):
     hostname: str
     pem: str
 
 @app.post('/api/certificates/import')
-def import_certificate(body: CertificateImport):
+def import_certificate(body: CertificateImport,request:Request):
+    require_operator(request)
     try:
         return core.import_public_certificate(body.pem, body.hostname)
     except ValueError as exc:
@@ -59,17 +72,20 @@ def import_certificate(body: CertificateImport):
 class Compromise(BaseModel):
     certificate_id:str
 @app.post('/api/simulate-compromise')
-def compromise(body:Compromise):
+def compromise(body:Compromise,request:Request):
+    require_operator(request)
     try: return orchestration.simulate_incident(body.certificate_id)
     except ValueError as e: raise HTTPException(400,str(e))
 class Approval(BaseModel):
     approver:str
 @app.post('/api/incidents/{incident_id}/approve')
-def approve(incident_id:str,body:Approval):
+def approve(incident_id:str,body:Approval,request:Request):
+    require_operator(request)
     try: return orchestration.approved_response(incident_id,body.approver)
     except ValueError as e: raise HTTPException(400,str(e))
 @app.post('/api/incidents/{incident_id}/reject')
-def reject(incident_id:str):
+def reject(incident_id:str,request:Request):
+    require_operator(request)
     try:
         core.reject(incident_id)
         return {'status':'rejected'}
@@ -85,7 +101,8 @@ class Endpoint(BaseModel):
     port:int=8443
     expected_hostname:str='service-01.demo.local'
 @app.post('/api/scan-endpoint')
-def scan_endpoint(body:Endpoint):
+def scan_endpoint(body:Endpoint,request:Request):
+    require_operator(request)
     try: return core.scan_tls_endpoint(body.host,body.port,body.expected_hostname)
     except (ValueError,OSError,ssl.SSLError) as exc: raise HTTPException(400,str(exc))
 @app.get('/api/revocations')
@@ -99,7 +116,8 @@ def audit_integrity(): return core.verify_audit_chain()
 def ct_monitor(): return core.ct_monitor()
 
 @app.post('/api/scan-local-tls')
-def scan_local_tls():
+def scan_local_tls(request:Request):
+    require_operator(request)
     try: return core.scan_registered_endpoint()
     except (ValueError,OSError,ssl.SSLError) as exc: raise HTTPException(400,str(exc))
 
