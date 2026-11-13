@@ -148,7 +148,7 @@ def enriched_findings():
 
 @app.get('/api/integrations')
 def integrations():
-    return {'acme':{'configured':False,'status':'requires external step-ca ACME server and challenge setup'},
+    return {'acme':{'configured':bool(os.environ.get('AEGIS_ACME_DIRECTORY_URL')), 'mode':'operator-run certbot HTTP-01', 'status':'private ACME directory configured; issuance not yet verified' if os.environ.get('AEGIS_ACME_DIRECTORY_URL') else 'requires external step-ca ACME server and HTTP-01 challenge setup'},
             'notifications':{'configured':bool(os.environ.get('AEGIS_NOTIFY_WEBHOOK_URL')),
                              'channel':'https_webhook'},
             'tls_demo':{'enabled':os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1',
