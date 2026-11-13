@@ -1,0 +1,31 @@
+name: Restore AEGIS PKI source
+on:
+  push:
+    paths:
+      - 'source_snapshot/**'
+      - 'scripts/restore_source.py'
+      - '.github/workflows/restore-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore app files
+        run: python scripts/restore_source.py
+      - name: Commit generated source (if updated)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md requirements.txt backend frontend tests .gitignore
+          if ! git diff --staged --quiet; then
+            git commit -m "feat: restore full AEGIS PKI application source"
+            git push
+          fi
