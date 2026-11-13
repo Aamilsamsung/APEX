@@ -1,7 +1,22 @@
 const $=id=>document.getElementById(id);
 const state={tab:'overview',certs:[],findings:[],incidents:[],audit:[],steps:{},selectedCert:null,animatedIncident:null,overview:null,explanations:[],explanationMode:"deterministic-fallback"};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(path,options={}){const r=await fetch('/api/'+path,{headers:{'Content-Type':'application/json'},...options});const data=await r.json();if(!r.ok)throw new Error(data.detail||'Request failed');return data}
+async function api(path,options={}){
+  const mutation=(options.method||'GET').toUpperCase()!=='GET';
+  let token=sessionStorage.getItem('aegis_operator_token')||'';
+  if(mutation&&!token){
+    token=prompt('Operator access token (provided by the APEX demo owner):')||'';
+    if(!token)throw new Error('Operator authorization required');
+    sessionStorage.setItem('aegis_operator_token',token);
+  }
+  const headers={'Content-Type':'application/json',...(options.headers||{})};
+  if(mutation&&token)headers['X-Aegis-Operator-Token']=token;
+  const r=await fetch('/api/'+path,{...options,headers});
+  let data;try{data=await r.json()}catch{data={detail:'Unexpected server response'}}
+  if(r.status===401){sessionStorage.removeItem('aegis_operator_token');throw new Error('Invalid operator token. Please retry the action.')}
+  if(!r.ok)throw new Error(data.detail||'Request failed');
+  return data;
+}
 function notice(message,error=false){const n=$('notice');n.textContent=message;n.classList.remove('hidden');n.classList.toggle('error',error);setTimeout(()=>n.classList.add('hidden'),6000)}
 async function refresh(){try{const [overview,certs,findings,incidents,audit,explanations]=await Promise.all(['overview','certificates','findings','incidents','audit','explanations'].map(x=>api(x)));const steps=Object.fromEntries(await Promise.all(incidents.map(async i=>[i.id,await api('incidents/'+i.id+'/steps')])));Object.assign(state,{overview,certs,findings,incidents,audit,steps,explanations:explanations.recommendations,explanationMode:explanations.mode});render();renderMap()}catch(e){notice(e.message,true)}}
 function renderMap() {
