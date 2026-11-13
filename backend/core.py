@@ -465,7 +465,7 @@ def explain_with_llm():
     try:
         req=urllib.request.Request('https://api.groq.com/openai/v1/chat/completions',
             data=json.dumps(request).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
-        with urllib.request.urlopen(req,timeout=8) as response:
+        with urllib.request.urlopen(req,timeout=20) as response:
             body=json.load(response)
         parsed=json.loads(body['choices'][0]['message']['content'])
         items=parsed.get('recommendations',[])
@@ -482,13 +482,19 @@ def explain_with_llm():
             recommendations.append({'finding_id':fid,'severity':allowed[fid]['severity'],
                                     'priority':priority,'explanation':explanation})
             seen.add(fid); ranks.add(priority)
-        if len(recommendations)!=len(fs) or set(ranks)!=set(range(1,len(fs)+1)):
-            raise ValueError('LLM ranking incomplete, invalid or ungrounded')
-        recommendations.sort(key=lambda r:r['priority'])
+        if not recommendations:
+            raise ValueError('LLM returned no valid grounded recommendations')
+        # Fill missing entries deterministically; do not discard valid LLM explanations.
+        for f in fs:
+            if f['id'] not in seen:
+                recommendations.append({'finding_id':f['id'],'severity':f['severity'],
+                    'priority':len(fs)+1,'explanation':next((x['explanation'] for x in fallback['recommendations'] if x['finding_id']==f['id']),f['message'])})
+        recommendations.sort(key=lambda r:(r['priority'],r['finding_id']))
+        for idx,item in enumerate(recommendations,1): item['priority']=idx
         return {'mode':'groq-llm','recommendations':recommendations,
-                'note':'Every recommendation maps to a rule-generated finding; LLM priority is advisory.'}
+                'note':'Every recommendation maps to a rule-generated finding; missing AI explanations are filled by deterministic guidance.'}
     except Exception as exc:
-        audit('llm.fallback',{'error_type':type(exc).__name__})
+        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':getattr(exc,'code',None)})
         return fallback
 
 
