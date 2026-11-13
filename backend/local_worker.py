@@ -5,6 +5,7 @@ Run: python -m backend.local_worker --check
 from __future__ import annotations
 
 import argparse
+import urllib.error
 import json
 import os
 import shutil
@@ -50,12 +51,32 @@ def check_environment(directory: str, cert_path: str) -> bool:
     return all(checks.values())
 
 
+def check_remote(site: str, token: str) -> bool:
+    if not site.startswith("https://") or not token:
+        print("Set AEGIS_WORKER_TOKEN and use an HTTPS Render URL.", file=sys.stderr)
+        return False
+    url = site.rstrip("/") + "/api/worker/ping"
+    request = urllib.request.Request(url, headers={"X-Aegis-Worker-Token": token})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.load(response)
+        print("Remote handshake:", data)
+        return data.get("ok") is True
+    except (urllib.error.URLError, ValueError) as exc:
+        print(f"Remote handshake failed: {exc}", file=sys.stderr)
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="APEX local PKI worker preflight (read-only)")
     parser.add_argument("--check", action="store_true", help="Check local Smallstep, Certbot and certificate")
+    parser.add_argument("--connect", action="store_true", help="Test authenticated connection to Render")
+    parser.add_argument("--site", default=os.getenv("AEGIS_SITE_URL", "https://apex-aegis-pki.onrender.com"))
     parser.add_argument("--directory", default=os.getenv("AEGIS_ACME_DIRECTORY_URL", DEFAULT_DIRECTORY))
     parser.add_argument("--cert", default=DEFAULT_CERT)
     args = parser.parse_args()
+    if args.connect:
+        return 0 if check_remote(args.site, os.getenv("AEGIS_WORKER_TOKEN", "")) else 1
     if not args.check:
         print("Remote worker integration is not configured yet. Run --check to verify the local PKI setup.")
         return 2
