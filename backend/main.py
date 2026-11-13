@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import core, orchestration, openssl_checks
+from . import core, orchestration, openssl_checks, standards
 
 app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI sandbox demonstration')
 
@@ -116,3 +116,11 @@ def orchestration_status():
             'reactive':['detector','approval_gate','responder'],
             'approval_boundary':'Responder runs only after explicit approval endpoint invocation',
             'scope':'local sandbox'}
+
+@app.get('/api/standards')
+def standards_references():
+    return standards.references()
+
+@app.get('/api/findings/enriched')
+def enriched_findings():
+    return standards.findings_with_references()
