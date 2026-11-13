@@ -15,7 +15,11 @@ def serve(port=8443, hostname='service-01.demo.local'):
     while True:
         with core.connect() as db:
             cert=db.execute('SELECT path,key_path,id FROM certificates WHERE hostname=? AND active=1',(hostname,)).fetchone()
-        if not cert: raise RuntimeError('No active sandbox certificate for hostname')
+        if not cert:
+            # Inventory may be reset by test fixtures or a concurrent sandbox reset.
+            # Stop cleanly instead of raising an unhandled background-thread exception.
+            print(f'AEGIS sandbox TLS server stopped: no active certificate for {hostname}')
+            return
         if cert['id']!=last:
             last=cert['id']; print('Deploying certificate',last)
         server=http.server.HTTPServer(('127.0.0.1',port),Handler)
