@@ -302,7 +302,6 @@ def approve_and_remediate(incident_id,actor):
                 c.execute('INSERT INTO revoked_serials(serial,revoked_at,reason) VALUES(?,?,?)',(old['serial'],timestamp(),'keyCompromise'))
                 c.execute('UPDATE certificates SET revoked=1,active=0 WHERE id=?',(row['id'],))
                 c.execute('INSERT INTO certificates(id,hostname,path,key_path,source) VALUES(?,?,?,?,?)',(new_id,old['hostname'],path,key_path,'sandbox-reissued'))
-                c.execute('UPDATE incidents SET status="resolved",resolved_at=? WHERE id=?',(timestamp(),incident_id))
             audit('remediation.revoked',{'incident_id':incident_id,'old_serial':old['serial'],'mechanism':'sandbox revocation registry'})
             # A live endpoint is optional; when present, verify the actual TLS-served certificate.
             live_verification={'status':'not_running','detail':'No local TLS endpoint was registered for this certificate'}
@@ -321,11 +320,21 @@ def approve_and_remediate(incident_id,actor):
                         time.sleep(.2)
                     else: live_verification={'status':'failed','detail':'Running TLS endpoint did not serve replacement certificate'}
                 except Exception as exc: live_verification={'status':'failed','detail':str(exc)}
+            # Never claim a live deployment succeeded when endpoint verification failed.
+            # In file-only sandbox mode, explicitly distinguish registry replacement from TLS deployment.
+            requires_live_tls = os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1' and old['hostname']=='service-01.demo.local'
+            if requires_live_tls and live_verification['status']!='verified':
+                audit('remediation.deployment_verification_failed',{'incident_id':incident_id,**live_verification})
+                raise RuntimeError('Required TLS deployment verification failed; incident cannot be resolved')
+            if live_verification['status']=='not_running':
+                live_verification={'status':'sandbox_registry_only','detail':'Replacement certificate registered and validated in sandbox; no live TLS deployment verified'}
             audit('remediation.deployment_verified',{'incident_id':incident_id,**live_verification})
+            with connect() as c:
+                c.execute('UPDATE incidents SET status="resolved",resolved_at=? WHERE id=?',(timestamp(),incident_id))
             from .notifications import notify
             notification=notify(incident_id,old['hostname'],'resolved',live_verification)
             audit('remediation.completed',{'incident_id':incident_id,'old_certificate':row['id'],'new_certificate':new_id,
-                  'steps':['sandbox CA revocation registry updated','fresh private key generated','CA-signed sandbox certificate issued','registered endpoint certificate pointer updated','replacement certificate validated'],
+                  'steps':['sandbox CA revocation registry updated','fresh private key generated','CA-signed sandbox certificate issued','sandbox inventory replacement registered','replacement certificate validated'],
                   'limitation':'Local CA issuance (not ACME); live endpoint verification and webhook delivery recorded separately'})
             audit('remediation.notification_result',{'incident_id':incident_id,**notification})
             scan()
