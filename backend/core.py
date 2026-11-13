@@ -353,7 +353,18 @@ def remediation_steps(incident_id):
         elif action=='remediation.deployment_verified':
             deployment = {**data, 'timestamp': at}
             step('Live TLS deployment check', 'Status: '+data['status']+'. '+(data.get('detail') or ('Verified endpoint '+data.get('endpoint',''))),at)
-        elif action=='notification.mocked': step('Owner notification simulated','A local notification record was written; no external message was sent.',at)
+        elif action in ('notification.delivery','remediation.notification_result'):
+            # Both events can describe the same delivery attempt; show it once.
+            if action=='notification.delivery':
+                status=data.get('status','unknown')
+                if status=='delivered':
+                    step('Owner notification delivered','Configured webhook confirmed successful delivery.',at)
+                elif status=='not_configured':
+                    step('Owner notification not configured','No webhook URL is configured; the delivery attempt was recorded in the audit log.',at)
+                else:
+                    step('Owner notification failed','Webhook delivery failed or was rejected; see the audit log for details.',at)
+        elif action=='notification.mocked':
+            step('Owner notification simulated','A local notification record was written; no external message was sent.',at)
         elif action=='remediation.failed': step('Remediation failed',str(data.get('error','Unknown error')),at)
     return {'incident_id':incident_id,'status':incident['status'],'steps':steps,'comparison':comparison,'deployment':deployment}
 
