@@ -178,13 +178,19 @@ showDiagnostics();
 
 document.getElementById('llm-check')?.addEventListener('click',async()=>{const btn=$('llm-check');btn.disabled=true;btn.textContent='Checking…';try{const data=await api('explanations');state.explanationMode=data.mode;state.explanationReason=data.reason;state.explanationNote=data.note;state.explanationHint=data.provider_hint;state.explanations=data.recommendations||[];render();notice(data.mode==='groq-llm'?'Groq LLM responded successfully':data.mode==='no-findings'?'No findings to analyze':('Groq fallback: '+(data.reason||'unknown error').replaceAll('_',' ')))}catch(e){notice('LLM check failed: '+e.message,true)}finally{btn.disabled=false;btn.textContent='Check LLM now'}});
 document.getElementById('record-local-recovery')?.addEventListener('click',async()=>{
-  if(!confirm('Record the previously completed local CA recovery as OPERATOR-ATTESTED evidence? This does not perform CA verification or revocation.'))return;
+  const operator=prompt('Enter the operator name for this local Smallstep run');
+  if(!operator?.trim())return;
+  const old_serial=prompt('Enter the old CA serial in hexadecimal');
+  const new_serial=prompt('Enter the new CA serial in hexadecimal');
+  const sha256_fingerprint=prompt('Enter the served certificate SHA-256 fingerprint (64 hex characters)');
+  if(!old_serial||!new_serial||!sha256_fingerprint)return;
+  const deployment_verified=confirm('Did the trusted local TLS handshake verify the replacement?');
+  const ca_revocation_confirmed=confirm('Did the local CA confirm revocation of the old certificate?');
+  if(!confirm('Record these results as operator-attested evidence?'))return;
   try{
-    const payload={hostname:'service-01.demo.local',
-      old_serial:'64F7C5B6A19FF2F3598CE958A6AC5AFD',
-      new_serial:'339E13F497D32E6ACA2F6AFDB6F12498',
-      sha256_fingerprint:'fbc58bdb013e66d253e526ac7a4bd9ee360de4cbc0a600a4d2fb992244d1cf63',
-      deployment_verified:true,ca_revocation_confirmed:true,operator:'APEX demo operator'};
+    const payload={hostname:'service-01.demo.local',old_serial:old_serial.trim(),
+      new_serial:new_serial.trim(),sha256_fingerprint:sha256_fingerprint.trim(),
+      deployment_verified,ca_revocation_confirmed,operator:operator.trim()};
     await api('local-recovery/evidence',{method:'POST',body:JSON.stringify(payload)});
     await refresh();
     notice('Operator-attested local recovery evidence recorded in audit.');
