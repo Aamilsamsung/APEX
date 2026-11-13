@@ -107,6 +107,35 @@ def rotate_demo_certificate(directory: str) -> tuple[bool, str]:
         return False, "ACME operation or verification failed locally"
 
 
+
+def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int = 8443) -> bool:
+    """Read-only comparison of local PEM and certificate served by loopback TLS."""
+    import hashlib
+    import socket
+    from cryptography import x509
+    if host != "127.0.0.1" or not (1024 <= port <= 65535):
+        raise ValueError("Only the local sandbox TLS endpoint is allowed")
+    try:
+        pem = Path(cert_path).read_bytes()
+        expected = x509.load_pem_x509_certificate(pem)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE  # Local demo CA: compare DER fingerprint explicitly.
+        with socket.create_connection((host, port), timeout=5) as raw:
+            with ctx.wrap_socket(raw, server_hostname="service-01.demo.local") as tls:
+                der = tls.getpeercert(binary_form=True)
+        served = x509.load_der_x509_certificate(der)
+        matching = expected.fingerprint(__import__('cryptography.hazmat.primitives.hashes', fromlist=['SHA256']).SHA256()) == served.fingerprint(__import__('cryptography.hazmat.primitives.hashes', fromlist=['SHA256']).SHA256())
+        print("Expected serial:", format(expected.serial_number, "X"))
+        print("Served serial:  ", format(served.serial_number, "X"))
+        print("TLS certificate fingerprint:", hashlib.sha256(der).hexdigest())
+        print("PASS: served certificate matches local PEM" if matching else "FAIL: TLS endpoint is serving a different certificate")
+        return matching
+    except (OSError, ssl.SSLError, ValueError) as exc:
+        print(f"FAIL: local TLS verification unavailable ({type(exc).__name__})", file=sys.stderr)
+        return False
+
+
 def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_acme: bool = False, directory: str = DEFAULT_DIRECTORY) -> int:
     if not site.startswith("https://") or not token:
         print("HTTPS site and AEGIS_WORKER_TOKEN required", file=sys.stderr)
@@ -150,6 +179,7 @@ def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_a
 def main() -> int:
     parser = argparse.ArgumentParser(description="APEX local PKI worker preflight (read-only)")
     parser.add_argument("--check", action="store_true", help="Check local Smallstep, Certbot and certificate")
+    parser.add_argument("--verify-served", action="store_true", help="Read-only comparison against 127.0.0.1:8443 TLS certificate")
     parser.add_argument("--connect", action="store_true", help="Test authenticated connection to Render")
     parser.add_argument("--run", action="store_true", help="Poll approved inspection jobs (read-only)")
     parser.add_argument("--once", action="store_true", help="Poll once and exit")
@@ -158,6 +188,8 @@ def main() -> int:
     parser.add_argument("--directory", default=os.getenv("AEGIS_ACME_DIRECTORY_URL", DEFAULT_DIRECTORY))
     parser.add_argument("--cert", default=DEFAULT_CERT)
     args = parser.parse_args()
+    if args.verify_served:
+        return 0 if verify_served_certificate(args.cert) else 1
     if args.run:
         return run_jobs(args.site, os.getenv("AEGIS_WORKER_TOKEN",""), args.cert, args.once, args.enable_acme, args.directory)
     if args.connect:
