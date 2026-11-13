@@ -28,7 +28,11 @@ def check_environment(directory: str, cert_path: str) -> bool:
     except Exception as exc:
         checks["private_acme_reachable"] = False
         print(f"ACME connectivity error: {type(exc).__name__}: {exc}", file=sys.stderr)
-    checks["certificate_present"] = Path(cert_path).is_file()
+    try:
+        checks["certificate_present"] = Path(cert_path).is_file()
+    except PermissionError:
+        checks["certificate_present"] = False
+        print("Certbot certificate directory is protected. Run preflight with sudo or configure scoped access.", file=sys.stderr)
     if checks["certificate_present"]:
         try:
             result = subprocess.run(
