@@ -368,7 +368,7 @@ def explain_deterministically():
         'REVOKED':'Replace this certificate before using the endpoint.',
         'INVALID_CHAIN':'Verify the certificate issuer and chain before deployment.'}
     return {'mode':'deterministic-fallback','note':'Rule-based explanations; no LLM was used.',
-            'recommendations':[{'finding_id':f['id'],'severity':f['severity'],'explanation':explanations.get(f['code'],'Review the finding.')} for f in fs[:15]]}
+            'recommendations':[{'finding_id':f['id'],'severity':f['severity'],'priority':i+1,'explanation':explanations.get(f['code'],'Review the finding.')} for i,f in enumerate(fs[:15])]}
 
 
 def verify_revocation(serial):
