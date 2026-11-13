@@ -5,20 +5,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import core
+from . import core, orchestration
 
 app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI sandbox demonstration')
 
 @app.on_event('startup')
 def startup():
     core.seed()
-    core.scan()
+    orchestration.preventive_scan()
     interval=int(os.environ.get('AEGIS_SCAN_INTERVAL_SECONDS','0'))
     if interval>=30:
         def periodic_scans():
             while True:
                 time.sleep(interval)
-                try: core.scan()
+                try: orchestration.preventive_scan()
                 except Exception as exc: core.audit('scan.failed',{'error':type(exc).__name__})
         threading.Thread(target=periodic_scans,daemon=True,name='aegis-preventive-scanner').start()
 
@@ -41,7 +41,7 @@ def audit(): return core.logs()
 @app.get('/api/explanations')
 def explanations(): return core.explain_with_llm()
 @app.post('/api/scan')
-def scan(): return core.scan()
+def scan(): return orchestration.preventive_scan()
 class CertificateImport(BaseModel):
     hostname: str
     pem: str
@@ -57,13 +57,13 @@ class Compromise(BaseModel):
     certificate_id:str
 @app.post('/api/simulate-compromise')
 def compromise(body:Compromise):
-    try: return {'incident_id':core.simulate_compromise(body.certificate_id)}
+    try: return orchestration.simulate_incident(body.certificate_id)
     except ValueError as e: raise HTTPException(400,str(e))
 class Approval(BaseModel):
     approver:str
 @app.post('/api/incidents/{incident_id}/approve')
 def approve(incident_id:str,body:Approval):
-    try: return core.approve_and_remediate(incident_id,body.approver)
+    try: return orchestration.approved_response(incident_id,body.approver)
     except ValueError as e: raise HTTPException(400,str(e))
 @app.post('/api/incidents/{incident_id}/reject')
 def reject(incident_id:str):
