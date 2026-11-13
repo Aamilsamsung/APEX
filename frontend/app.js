@@ -176,6 +176,19 @@ async function showDiagnostics(){
 }
 showDiagnostics();
 
+document.getElementById('record-local-recovery')?.addEventListener('click',async()=>{
+  if(!confirm('Record the previously completed local CA recovery as OPERATOR-ATTESTED evidence? This does not perform CA verification or revocation.'))return;
+  try{
+    const payload={hostname:'service-01.demo.local',
+      old_serial:'64F7C5B6A19FF2F3598CE958A6AC5AFD',
+      new_serial:'339E13F497D32E6ACA2F6AFDB6F12498',
+      sha256_fingerprint:'fbc58bdb013e66d253e526ac7a4bd9ee360de4cbc0a600a4d2fb992244d1cf63',
+      deployment_verified:true,ca_revocation_confirmed:true,operator:'APEX demo operator'};
+    await api('local-recovery/evidence',{method:'POST',body:JSON.stringify(payload)});
+    await refresh();
+    notice('Operator-attested local recovery evidence recorded in audit.');
+  }catch(e){notice('Could not record recovery evidence: '+e.message,true)}
+});
 document.getElementById('certificate-import-form')?.addEventListener('submit',async event=>{
   event.preventDefault();
   const file=document.getElementById('import-file').files[0];
