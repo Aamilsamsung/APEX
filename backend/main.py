@@ -153,3 +153,13 @@ def integrations():
                              'channel':'https_webhook'},
             'tls_demo':{'enabled':os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1',
                         'endpoint':'127.0.0.1:8443'}}
+
+# Remote worker handshake. A separate token protects this channel.
+# This endpoint never exposes CA private keys or accepts arbitrary shell commands.
+@app.get('/api/worker/ping')
+def worker_ping(request:Request):
+    token=os.environ.get('AEGIS_WORKER_TOKEN','')
+    provided=request.headers.get('X-Aegis-Worker-Token','')
+    if not token or not secrets.compare_digest(provided,token):
+        raise HTTPException(401,'Worker token required')
+    return {'ok':True,'mode':'connectivity-only','message':'Remote worker authenticated; job execution not enabled'}
