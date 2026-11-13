@@ -286,6 +286,8 @@ def remediation_steps(incident_id):
         if not incident: raise ValueError('Incident not found')
         entries=[dict(r) for r in c.execute('SELECT action, timestamp, details FROM audit ORDER BY id')]
     steps=[]
+    comparison = {}
+    deployment = None
     def step(title,detail,at): steps.append({'title':title,'detail':detail,'timestamp':at})
     for entry in entries:
         data=json.loads(entry['details'])
@@ -295,16 +297,25 @@ def remediation_steps(incident_id):
         elif action=='remediation.approved': step('Human approval recorded',f"Operator {data.get('approver','unknown')} authorized the sandbox recovery.",at)
         elif action=='remediation.rejected': step('Remediation rejected','No certificate rotation was authorized.',at)
         elif action=='remediation.completed':
+            with connect() as c:
+                for label, key in (('before', 'old_certificate'), ('after', 'new_certificate')):
+                    row = c.execute('SELECT * FROM certificates WHERE id=?', (data.get(key),)).fetchone()
+                    if row and Path(row['path']).is_file():
+                        cert = describe(row)
+                        comparison[label] = {field: cert[field] for field in (
+                            'hostname', 'expires_at', 'key_type', 'key_bits', 'fingerprint', 'serial'
+                        )}
             step('Old certificate revoked in sandbox registry','The previous certificate serial was added to the local revocation database. This is not OCSP/CRL publication.',at)
             step('Fresh private key generated','A new RSA-2048 private key was created locally.',at)
             step('Replacement certificate issued','The local sandbox CA signed a replacement certificate with the original hostname.',at)
             step('Active certificate updated','The active inventory pointer was changed. The optional demo TLS server reloads on its next request.',at)
             step('Certificate properties verified','The replacement was checked for expiry, key strength and matching SAN; this is not proof of live TLS redeployment.',at)
         elif action=='remediation.deployment_verified':
+            deployment = {**data, 'timestamp': at}
             step('Live TLS deployment check', 'Status: '+data['status']+'. '+(data.get('detail') or ('Verified endpoint '+data.get('endpoint',''))),at)
         elif action=='notification.mocked': step('Owner notification simulated','A local notification record was written; no external message was sent.',at)
         elif action=='remediation.failed': step('Remediation failed',str(data.get('error','Unknown error')),at)
-    return {'incident_id':incident_id,'status':incident['status'],'steps':steps}
+    return {'incident_id':incident_id,'status':incident['status'],'steps':steps,'comparison':comparison,'deployment':deployment}
 
 def logs(limit=100):
     with connect() as c:

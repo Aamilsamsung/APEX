@@ -84,3 +84,9 @@ The **Incident response** page now displays a step-by-step account of the detect
 6. Show the mocked CT feed and distinguish its rogue entry from actual internet CT results.
 
 Run tests from the project root using `python -m pytest -q`.
+
+## Team APEX dashboard
+
+The dashboard uses [Circle](https://github.com/ln-dev7/circle) as the visual reference for the compact workspace layout and [React Flow](https://github.com/xyflow/xyflow) for the certificate relationship map. Select a service or click a finding to inspect its issuer, active certificate, and registered hostname. The incident timeline displays audited sandbox steps, the original and replacement certificates, and the separate live TLS result.
+
+FastAPI serves the checked-in frontend build. To rebuild after editing the React Flow component, run `npm ci && npm run build` from `frontend/`.

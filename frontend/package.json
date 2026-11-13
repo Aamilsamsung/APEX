@@ -1,0 +1,17 @@
+{
+  "name": "apex-pki-ui",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild src/certificate-map.jsx --bundle --minify --legal-comments=linked --outfile=certificate-map.js"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@xyflow/react": "12.12.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "private": true
+}
