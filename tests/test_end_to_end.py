@@ -11,7 +11,6 @@ def test_complete_sandbox_incident_with_live_tls(monkeypatch, tmp_path):
     monkeypatch.setattr(core, 'DATA', tmp_path)
     monkeypatch.setattr(core, 'CERTS', tmp_path / 'certificates')
     monkeypatch.setattr(core, 'DB', tmp_path / 'aegis.db')
-    core._CA_CACHE.clear()
     monkeypatch.setenv('AEGIS_OPERATOR_TOKEN','test-token')
     monkeypatch.delenv('AEGIS_NOTIFY_WEBHOOK_URL',raising=False)
     core.seed()
