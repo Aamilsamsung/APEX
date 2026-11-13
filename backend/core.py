@@ -191,7 +191,15 @@ def assess(cert):
     if cert.get('self_signed'): add('UNEXPECTED_SELF_SIGNED','critical','Leaf certificate is self-signed instead of sandbox CA-issued')
     if cert.get('validity_days',0)>398: add('LONG_VALIDITY','medium','Certificate validity exceeds sandbox policy of 398 days')
     wildcards=[name for name in cert['sans'] if name.startswith('*.')]
-    if wildcards and not cert['hostname'].endswith(wildcards[0][1:]): add('WILDCARD_MISUSE','high','Wildcard SAN does not cover registered hostname')
+    if wildcards:
+        # A wildcard must match exactly one DNS label, not arbitrary subdomains.
+        valid_wildcard=any(
+            cert['hostname'].endswith(name[1:]) and
+            cert['hostname'].count('.')==name.count('.')
+            for name in wildcards
+        )
+        if not valid_wildcard:
+            add('WILDCARD_MISUSE','high','Wildcard SAN does not cover exactly one label of the registered hostname')
     if cert['compromised']: add('KEY_COMPROMISE','critical','Sandbox incident simulator marked this private key compromised')
     if cert['revoked']: add('REVOKED','critical','Certificate is marked revoked by sandbox authority')
     # Trust validation is handled separately using the local sandbox CA.
