@@ -295,12 +295,14 @@ def approve_and_remediate(incident_id,actor):
                     else: live_verification={'status':'failed','detail':'Running TLS endpoint did not serve replacement certificate'}
                 except Exception as exc: live_verification={'status':'failed','detail':str(exc)}
             audit('remediation.deployment_verified',{'incident_id':incident_id,**live_verification})
+            from .notifications import notify
+            notification=notify(incident_id,old['hostname'],'resolved',live_verification)
             audit('remediation.completed',{'incident_id':incident_id,'old_certificate':row['id'],'new_certificate':new_id,
                   'steps':['sandbox CA revocation registry updated','fresh private key generated','CA-signed sandbox certificate issued','registered endpoint certificate pointer updated','replacement certificate validated'],
-                  'limitation':'Local CA issuance (not ACME); live endpoint verification recorded separately; no external notifications'})
-            audit('notification.mocked',{'incident_id':incident_id,'recipient':'sandbox-service-owner','message':'Certificate rotated after approved simulated key compromise','delivery':'local audit only; no email or webhook sent'})
+                  'limitation':'Local CA issuance (not ACME); live endpoint verification and webhook delivery recorded separately'})
+            audit('remediation.notification_result',{'incident_id':incident_id,**notification})
             scan()
-            return {'new_certificate_id':new_id,'incident_id':incident_id,'status':'resolved',
+            return {'new_certificate_id':new_id,'incident_id':incident_id,'status':'resolved','tls_verification':live_verification,'notification':notification,
                     'remediation_steps':remediation_steps(incident_id)}
         except Exception as exc:
             with connect() as c: c.execute('UPDATE incidents SET status="failed",error=? WHERE id=?',(str(exc),incident_id))
