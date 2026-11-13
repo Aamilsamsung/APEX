@@ -90,3 +90,16 @@ Run tests from the project root using `python -m pytest -q`.
 The dashboard uses [Circle](https://github.com/ln-dev7/circle) as the visual reference for the compact workspace layout and [React Flow](https://github.com/xyflow/xyflow) for the certificate relationship map. Select a service or click a finding to inspect its issuer, active certificate, and registered hostname. The incident timeline displays audited sandbox steps, the original and replacement certificates, and the separate live TLS result.
 
 FastAPI serves the checked-in frontend build. To rebuild after editing the React Flow component, run `npm ci && npm run build` from `frontend/`.
+
+## Additional integration: public certificate imports and scheduled scanning
+
+Open **Certificate inventory** and select a public PEM/CRT/CER certificate, then enter the DNS hostname you expect it to cover. The backend parses the public X.509 certificate, stores it in the local sandbox, runs deterministic risk checks, and shows it in inventory. **Never upload a private key.** Imported certificates are intentionally scan-only and cannot be rotated by the Responder.
+
+To enable periodic preventive scans, set `AEGIS_SCAN_INTERVAL_SECONDS=300` before starting FastAPI (minimum 30 seconds). By default, scans run at startup and on demand. For multiple authorized local TLS demo endpoints, run separate terminals:
+
+```bash
+python -m backend.demo_tls --hostname service-01.demo.local --port 8443
+python -m backend.demo_tls --hostname service-02.demo.local --port 8444
+```
+
+The endpoint API supports loopback-only targets. The dashboard's quick TLS button still checks only port 8443. Local demo certificates are not trusted by public browsers. The backend does **not** provide ACME issuance, authenticated approvals, delivered notifications, or general internet scanning. These limitations must not be presented as completed features.
