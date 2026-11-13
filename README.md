@@ -103,3 +103,11 @@ python -m backend.demo_tls --hostname service-02.demo.local --port 8444
 ```
 
 The endpoint API supports loopback-only targets. The dashboard's quick TLS button still checks only port 8443. Local demo certificates are not trusted by public browsers. The backend does **not** provide ACME issuance, authenticated approvals, delivered notifications, or general internet scanning. These limitations must not be presented as completed features.
+
+## LangGraph and OpenSSL integration
+
+Install updated dependencies with `python -m pip install -r requirements.txt`. The backend now uses **LangGraph** to coordinate Scanner → Risk Analyst on startup, scheduled scans, and `POST /api/scan`. Simulated incidents use Detector → Approval Gate. The gate ends in `pending_approval`; the Responder is invoked only by `POST /api/incidents/{incident_id}/approve`, which also checks the pending state. This is a demo approval gate, **not authenticated authorization**. Inspect `GET /api/orchestration`.
+
+Install the **OpenSSL command-line program** separately and ensure `openssl version` works. `GET /api/certificates/{certificate_id}/openssl` returns public X.509 inspection and `openssl verify` against the local sandbox CA. The command never passes private keys or arbitrary remote hosts. Imported certificates signed by other CAs will generally fail sandbox CA verification as expected. OpenSSL is optional for application startup but required for that endpoint.
+
+Run `python -m pytest -q` after installing requirements. These integrations need to be tested on your target Windows environment before the hackathon; no CI result is claimed here. ACME, real notification delivery, authenticated approval and production-grade agent isolation are still not implemented.
