@@ -39,4 +39,10 @@ def test_incident_steps_describe_real_sandbox_actions():
     assert result['status']=='resolved'
     titles=[s['title'] for s in result['steps']]
     assert 'Fresh private key generated' in titles
-    assert 'Owner notification simulated' in titles
+    # The timeline must report the real webhook outcome, never claim a mock send.
+    assert any(t in titles for t in (
+        'Owner notification delivered',
+        'Owner notification not configured',
+        'Owner notification failed',
+    ))
+    assert 'Owner notification simulated' not in titles
