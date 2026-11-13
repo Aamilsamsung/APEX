@@ -1,0 +1,23 @@
+name: APEX PKI tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run all tests
+        env:
+          AEGIS_DATA_DIR: ${{ runner.temp }}/aegis-test-data
+          AEGIS_OPERATOR_TOKEN: ci-test-operator-token
+          AEGIS_ENABLE_TLS_DEMO: '0'
+        run: python -m pytest -q
