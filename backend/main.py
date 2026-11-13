@@ -220,3 +220,31 @@ def worker_complete(job_id:str,body:WorkerResult,request:Request):
         if not cur.rowcount: raise HTTPException(409,'Job not running')
     core.audit('worker.job.completed',{'job_id':job_id,'ok':body.ok,'details':body.details})
     return {'id':job_id,'status':'completed' if body.ok else 'failed'}
+
+# Separate explicit operator authorization for local ACME recovery.
+# Does not alter the existing sandbox-only approval route.
+class AcmeRecoveryApproval(BaseModel):
+    approver:str
+    hostname:str='service-01.demo.local'
+
+@app.post('/api/incidents/{incident_id}/approve-local-acme')
+def approve_local_acme(incident_id:str,body:AcmeRecoveryApproval,request:Request):
+    require_operator(request)
+    if not body.approver.strip(): raise HTTPException(400,'Approver required')
+    if body.hostname!='service-01.demo.local':
+        raise HTTPException(400,'Local ACME demo is restricted to service-01.demo.local')
+    init_worker_jobs()
+    with core.LOCK:
+        with core.connect() as db:
+            incident=db.execute('SELECT * FROM incidents WHERE id=? AND status="pending_approval"',(incident_id,)).fetchone()
+            if not incident: raise HTTPException(409,'Incident must be pending approval')
+            cert=db.execute('SELECT hostname FROM certificates WHERE id=?',(incident['certificate_id'],)).fetchone()
+            if not cert or cert['hostname']!=body.hostname:
+                raise HTTPException(400,'Incident certificate hostname does not match local ACME target')
+            job_id=secrets.token_hex(12)
+            db.execute('UPDATE incidents SET status="approved",approved_at=? WHERE id=?',(core.timestamp(),incident_id))
+            db.execute('INSERT INTO worker_jobs(id,action,hostname,status,created_at,result) VALUES(?,?,?,?,?,?)',
+                       (job_id,'acme_recovery',body.hostname,'queued',core.timestamp(),incident_id))
+        core.audit('remediation.local_acme_approved',{'incident_id':incident_id,'job_id':job_id,'approver':body.approver,'hostname':body.hostname})
+    return {'job_id':job_id,'incident_id':incident_id,'status':'queued','action':'acme_recovery',
+            'note':'Local worker must explicitly enable ACME execution; queued jobs are inert by default'}
