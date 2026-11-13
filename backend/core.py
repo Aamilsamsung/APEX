@@ -497,15 +497,38 @@ def explain_with_llm():
     except Exception as exc:
         status=getattr(exc,'code',None)
         provider_code=None
+        provider_hint=None
         if isinstance(exc,urllib.error.HTTPError):
             try:
-                error_body=json.loads(exc.read(4096).decode('utf-8','replace'))
-                provider_error=error_body.get('error',{}) if isinstance(error_body,dict) else {}
-                if isinstance(provider_error,dict):
-                    candidate=provider_error.get('code')
-                    if isinstance(candidate,str) and candidate in ('model_permission_blocked','model_not_found','invalid_api_key','invalid_request_error','permission_denied','organization_restricted','project_restricted','rate_limit_exceeded'):
-                        provider_code=candidate
-            except (ValueError,UnicodeError,OSError): pass
+                raw=exc.read(4096).decode('utf-8','replace')
+                # Only return fixed diagnostic categories; never expose raw provider
+                # messages, response headers, tokens or user-supplied content.
+                try:
+                    error_body=json.loads(raw)
+                    provider_error=error_body.get('error',{}) if isinstance(error_body,dict) else {}
+                    if isinstance(provider_error,dict):
+                        candidate=provider_error.get('code')
+                        if isinstance(candidate,str) and candidate in ('model_permission_blocked','model_not_found','invalid_api_key','invalid_request_error','permission_denied','organization_restricted','project_restricted','rate_limit_exceeded'):
+                            provider_code=candidate
+                except (ValueError,TypeError): pass
+                low=raw.lower()
+                if 'cloudflare' in low or 'attention required' in low or 'access denied' in low and '<html' in low:
+                    provider_hint='edge_security_block'
+                elif 'organization' in low or 'org_' in low:
+                    provider_hint='organization_access'
+                elif 'project' in low:
+                    provider_hint='project_access'
+                elif 'model' in low and ('restrict' in low or 'permission' in low or 'allow' in low):
+                    provider_hint='model_permission'
+                elif 'location' in low or 'region' in low or 'country' in low:
+                    provider_hint='regional_access'
+                elif 'invalid' in low and ('key' in low or 'token' in low):
+                    provider_hint='invalid_api_key'
+                elif 'quota' in low or 'limit' in low:
+                    provider_hint='quota_or_limit'
+                else:
+                    provider_hint='unclassified_403_response'
+            except (UnicodeError,OSError): pass
         reason=('invalid_credentials' if status==401 else
                 'access_forbidden' if status==403 else
                 'rate_limited' if status==429 else
@@ -513,7 +536,7 @@ def explain_with_llm():
                 'provider_unavailable' if status in (500,502,503,504) else
                 'timeout_or_network_error' if isinstance(exc,(TimeoutError,urllib.error.URLError)) else
                 'invalid_provider_response')
-        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason,'provider_code':provider_code})
+        audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason,'provider_code':provider_code,'provider_hint':provider_hint})
         return {**fallback,'reason':reason,'http_status':status,'provider_code':provider_code,'note':'Groq rejected the request (HTTP '+str(status)+'). Check Groq organization/project model permissions if 403.'}
 
 
