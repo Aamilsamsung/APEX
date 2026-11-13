@@ -113,6 +113,7 @@ def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int
     import hashlib
     import socket
     from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
     if host != "127.0.0.1" or not (1024 <= port <= 65535):
         raise ValueError("Only the local sandbox TLS endpoint is allowed")
     try:
@@ -125,7 +126,7 @@ def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int
             with ctx.wrap_socket(raw, server_hostname="service-01.demo.local") as tls:
                 der = tls.getpeercert(binary_form=True)
         served = x509.load_der_x509_certificate(der)
-        matching = expected.fingerprint(__import__('cryptography.hazmat.primitives.hashes', fromlist=['SHA256']).SHA256()) == served.fingerprint(__import__('cryptography.hazmat.primitives.hashes', fromlist=['SHA256']).SHA256())
+        matching = expected.fingerprint(hashes.SHA256()) == served.fingerprint(hashes.SHA256())
         print("Expected serial:", format(expected.serial_number, "X"))
         print("Served serial:  ", format(served.serial_number, "X"))
         print("TLS certificate fingerprint:", hashlib.sha256(der).hexdigest())
