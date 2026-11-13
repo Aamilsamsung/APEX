@@ -239,6 +239,45 @@ def worker_complete(job_id:str,body:WorkerResult,request:Request):
     core.audit('worker.job.completed',{'job_id':job_id,'action':job['action'] if job else None,'incident_id':incident_id,'ok':body.ok,'details':body.details})
     return {'id':job_id,'status':'completed' if body.ok else 'failed'}
 
+
+# Operator-attested evidence for a separately performed local CA recovery.
+# This records evidence; it cannot execute or claim to verify remote CA operations.
+class LocalRecoveryEvidence(BaseModel):
+    hostname:str='service-01.demo.local'
+    old_serial:str
+    new_serial:str
+    sha256_fingerprint:str
+    deployment_verified:bool
+    ca_revocation_confirmed:bool
+    operator:str
+
+@app.post('/api/local-recovery/evidence')
+def record_local_recovery_evidence(body:LocalRecoveryEvidence,request:Request):
+    require_operator(request)
+    import re
+    if body.hostname!='service-01.demo.local': raise HTTPException(400,'Demo hostname only')
+    if not body.operator.strip() or len(body.operator)>100: raise HTTPException(400,'Operator required')
+    for serial in (body.old_serial,body.new_serial):
+        if not re.fullmatch(r'[0-9a-fA-F]{1,40}',serial): raise HTTPException(400,'Invalid hexadecimal serial')
+    if int(body.old_serial,16)==int(body.new_serial,16): raise HTTPException(400,'Serials must differ')
+    if not re.fullmatch(r'[0-9a-fA-F]{64}',body.sha256_fingerprint): raise HTTPException(400,'Invalid SHA256 fingerprint')
+    event={'hostname':body.hostname,'old_serial':body.old_serial.upper(),
+           'new_serial':body.new_serial.upper(),'sha256_fingerprint':body.sha256_fingerprint.lower(),
+           'deployment_verified':body.deployment_verified,
+           'ca_revocation_confirmed':body.ca_revocation_confirmed,
+           'operator':body.operator.strip(),'evidence_type':'operator_attestation',
+           'note':'Operator-reported local evidence; cloud server cannot independently inspect the private CA'}
+    core.audit('local_recovery.operator_attested',event)
+    return {'recorded':True,'evidence':event}
+
+@app.get('/api/local-recovery/evidence')
+def local_recovery_evidence():
+    import json
+    with core.connect() as db:
+        row=db.execute("SELECT timestamp,details FROM audit WHERE action='local_recovery.operator_attested' ORDER BY id DESC LIMIT 1").fetchone()
+    return {'available':bool(row),'timestamp':row['timestamp'] if row else None,
+            'evidence':json.loads(row['details']) if row else None}
+
 # Separate explicit operator authorization for local ACME recovery.
 # Does not alter the existing sandbox-only approval route.
 class AcmeRecoveryApproval(BaseModel):
