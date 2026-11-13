@@ -89,7 +89,48 @@ function animateHealth(target) {
   healthFrame = requestAnimationFrame(tick);
 }
 
-function render(){const s=state.overview;if(!s)return;animateHealth(s.health);$('score-status').textContent=s.health>=85?'Good standing':s.health>=65?'Review recommended':'Needs attention';$('total').textContent=s.total;$('healthy').textContent=s.healthy;$('critical').textContent=s.critical;$('warnings').textContent=s.high+s.warnings;$('critical-status').textContent=s.critical?'Review critical findings':'No critical findings';$('top-findings').innerHTML=state.findings.slice(0,5).map(findingHtml).join('')||'<p>No findings detected.</p>';$('finding-list').innerHTML=state.findings.map(findingHtml).join('')||'<p>No findings detected.</p>';$('inventory-rows').innerHTML=state.certs.filter(c=>c.hostname.includes(($('search').value||'').toLowerCase())).map(c=>{const bad=state.findings.some(f=>f.certificate_id===c.id);return `<tr><td>${esc(c.hostname)}</td><td>${esc(c.days_remaining)} days</td><td>${esc(c.key_type)}-${esc(c.key_bits)}</td><td><span class="status ${bad?'bad':''}">${bad?'At risk':'Healthy'}</span></td><td>${esc(c.fingerprint)}…</td></tr>`}).join('');$('explanation-list').innerHTML=`<p class="guide"><strong>Analysis mode:</strong> ${esc(state.explanationMode==='groq-llm'?'Groq LLM (verified findings only)':'Deterministic guidance (LLM not configured or unavailable)')}</p>`+state.explanations.map(g=>`<div class="guide"><strong>${esc(g.finding_id)}</strong><div>${esc(g.explanation)}</div></div>`).join('')||'<p>No guidance needed.</p>';$('incident-list').innerHTML=state.incidents.map(i=>`<div class="incident-card" data-incident-id="${esc(i.id)}"><h3>${esc(i.type)} <span class="status ${i.status==='resolved'?'':'bad'}">${esc(i.status === 'resolved' ? 'Sandbox rotation complete' : i.status.replaceAll('_',' '))}</span></h3><p>Certificate: ${esc(state.certs.find(c=>c.id===i.certificate_id)?.hostname||state.steps[i.id]?.comparison?.before?.hostname||i.certificate_id)} · ${esc(new Date(i.created_at).toLocaleString())}</p>${i.status==='pending_approval'?`<button class="primary" data-approve="${esc(i.id)}">Approve & remediate</button><button class="secondary" data-reject="${esc(i.id)}">Reject</button>`:''}${i.error?`<p>${esc(i.error)}</p>`:''}${incidentEvidence(i)}</div>`).join('')||'<p>No incidents. Use “Simulate incident” to demonstrate the workflow.</p>';$('audit-list').innerHTML=state.audit.map(a=>`<div class="activity"><div><strong>${esc(a.action)}</strong><div style="color:#7f94ae;margin-top:5px">${esc(a.details)}</div></div><span>${esc(new Date(a.timestamp).toLocaleString())}</span></div>`).join('');$('recent-audit').innerHTML=state.audit.slice(0,3).map(a=>`<div class="activity">${esc(a.action)}<span>${esc(new Date(a.timestamp).toLocaleTimeString())}</span></div>`).join('')}
+function render(){const s=state.overview;if(!s)return;animateHealth(s.health);$('score-status').textContent=s.health>=85?'Good standing':s.health>=65?'Review recommended':'Needs attention';$('total').textContent=s.total;$('healthy').textContent=s.healthy;$('critical').textContent=s.critical;$('warnings').textContent=s.high+s.warnings;$('critical-status').textContent=s.critical?'Review critical findings':'No critical findings';$('top-findings').innerHTML=state.findings.slice(0,5).map(findingHtml).join('')||'<p>No findings detected.</p>';$('finding-list').innerHTML=state.findings.map(findingHtml).join('')||'<p>No findings detected.</p>';$('inventory-rows').innerHTML=state.certs.filter(c=>c.hostname.includes(($('search').value||'').toLowerCase())).map(c=>{const bad=state.findings.some(f=>f.certificate_id===c.id);return `<tr><td>${esc(c.hostname)}</td><td>${esc(c.days_remaining)} days</td><td>${esc(c.key_type)}-${esc(c.key_bits)}</td><td><span class="status ${bad?'bad':''}">${bad?'At risk':'Healthy'}</span></td><td>${esc(c.fingerprint)}…</td></tr>`}).join('');$('explanation-list').innerHTML=`<p class="guide"><strong>Analysis mode:</strong> ${esc(state.explanationMode==='groq-llm'?'Groq LLM (verified findings only)':'Deterministic guidance (LLM not configured or unavailable)')}</p>`+state.explanations.map(g=>`<div class="guide"><strong>${esc(g.finding_id)}</strong><div>${esc(g.explanation)}</div></div>`).join('')||'<p>No guidance needed.</p>';$('incident-list').innerHTML=state.incidents.map(i=>`<div class="incident-card" data-incident-id="${esc(i.id)}"><h3>${esc(i.type)} <span class="status ${i.status==='resolved'?'':'bad'}">${esc(i.status === 'resolved' ? 'Sandbox rotation complete' : i.status.replaceAll('_',' '))}</span></h3><p>Certificate: ${esc(state.certs.find(c=>c.id===i.certificate_id)?.hostname||state.steps[i.id]?.comparison?.before?.hostname||i.certificate_id)} · ${esc(new Date(i.created_at).toLocaleString())}</p>${i.status==='pending_approval'?`<button class="primary" data-approve="${esc(i.id)}">Approve & remediate</button><button class="secondary" data-reject="${esc(i.id)}">Reject</button>`:''}${i.error?`<p>${esc(i.error)}</p>`:''}${incidentEvidence(i)}</div>`).join('')||'<p>No incidents. Use “Simulate incident” to demonstrate the workflow.</p>';$('audit-list').innerHTML=state.audit.map(renderAuditEntry).join('');$('recent-audit').innerHTML=state.audit.slice(0,3).map(a=>`<div class="activity">${esc(a.action)}<span>${esc(new Date(a.timestamp).toLocaleTimeString())}</span></div>`).join('')}
+function auditDescription(action, data) {
+  const names={
+    'scan.completed':['Security scan completed','The scanner checked registered sandbox certificates for risks.'],
+    'agent.responder.completed':['Response agent finished','The responder finished its assigned sandbox remediation workflow.'],
+    'remediation.completed':['Sandbox recovery completed','The sandbox CA rotated the certificate and recorded the outcome. This is not an ACME operation.'],
+    'remediation.revoked':['Old certificate revoked in sandbox','The sandbox CA revocation registry was updated for the old certificate.'],
+    'remediation.deployment_verified':['Replacement verified on local TLS demo','The loopback TLS demonstration endpoint presented the replacement certificate.'],
+    'remediation.notification_result':['Notification integration checked','The system recorded whether the external notification channel was available.'],
+    'notification_delivery':['Notification delivery status','The notification service reported its delivery or configuration status.'],
+    'remediation.local_acme_approved':['Local ACME operation approved','An operator authorized a restricted local worker job; approval does not mean execution succeeded.'],
+    'remediation.local_acme_result':['Local ACME worker reported','Certificate issuance result was reported. Revocation and deployment require separate verification.'],
+    'worker.job.completed':['Local worker job finished','The authenticated worker returned a result for its assigned job.']
+  };
+  const known=names[action]||[action.replaceAll(/[._]/g,' ').replace(/\b\w/g,x=>x.toUpperCase()),'A backend security event was recorded. Open technical details for the evidence.'];
+  let extra='';
+  if(data.status==='not_configured')extra=' External webhook notifications are not configured.';
+  if(data.scope)extra+=' Scope: '+data.scope+'.';
+  if(data.certificates!=null)extra+=' Certificates scanned: '+data.certificates+'.';
+  if(data.endpoint)extra+=' Endpoint: '+data.endpoint+'.';
+  return [known[0],known[1]+extra];
+}
+function renderAuditEntry(a){
+  let data={};
+  try { data=typeof a.details==='string'?JSON.parse(a.details):(a.details||{}); } catch { data={message:String(a.details||'')}; }
+  if(!data||typeof data!=='object')data={message:String(data)};
+  const [heading,description]=auditDescription(String(a.action||''),data);
+  const warning=data.status==='not_configured'||data.status==='failed';
+  const date=new Date(a.timestamp);
+  const when=Number.isNaN(date.getTime())?String(a.timestamp||''):date.toLocaleString();
+  return `<div class="activity" style="align-items:flex-start;gap:14px">
+    <div style="min-width:0;flex:1">
+      <strong style="font-size:14px">${esc(heading)}</strong>
+      <p style="margin:7px 0;color:#a5b4c8;line-height:1.6;font-size:13px">${esc(description)}</p>
+      ${warning?'<span style="color:#f5c178;font-size:12px">Attention required</span>':''}
+      <details style="margin-top:10px"><summary style="cursor:pointer;color:#8ebaff;font-size:12px">View technical details</summary>
+      <div style="font-size:12px;color:#94a3b8;margin:9px 0">Event: ${esc(a.action)} · ${esc(when)}</div>
+      <pre style="white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font-size:12px;line-height:1.5;color:#b9c9dc;background:#0d131c;border:1px solid #273344;border-radius:8px;padding:12px">${esc(JSON.stringify(data,null,2))}</pre>
+      </details>
+    </div><span style="white-space:nowrap;font-size:12px;color:#8496ad">${esc(when)}</span>
+  </div>`;
+}
 function tab(name){state.tab=name;document.querySelectorAll('.panel').forEach(e=>e.classList.toggle('active',e.id===name));document.querySelectorAll('.nav').forEach(e=>e.classList.toggle('active',e.dataset.tab===name));const titles={overview:'Certificate security',inventory:'Certificate inventory',findings:'Risk findings',incidents:'Incident response',audit:'Audit trail'};$('page-title').textContent=titles[name];$('breadcrumb').textContent=titles[name];$('page-subtitle').textContent={
   overview:'Review certificate risks and test how AEGIS PKI responds.',
   inventory:'Search the sandbox certificate inventory.',
