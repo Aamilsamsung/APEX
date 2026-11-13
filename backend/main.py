@@ -34,6 +34,17 @@ def audit(): return core.logs()
 def explanations(): return core.explain_with_llm()
 @app.post('/api/scan')
 def scan(): return core.scan()
+class CertificateImport(BaseModel):
+    hostname: str
+    pem: str
+
+@app.post('/api/certificates/import')
+def import_certificate(body: CertificateImport):
+    try:
+        return core.import_public_certificate(body.pem, body.hostname)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+
 class Compromise(BaseModel):
     certificate_id:str
 @app.post('/api/simulate-compromise')
