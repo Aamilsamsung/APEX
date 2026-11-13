@@ -119,3 +119,21 @@ Run `python -m pytest -q` after installing requirements. These integrations need
 - Existing sandbox CT replay remains supported; live crt.sh requests are not performed by default.
 - ACME and Smallstep step-ca are **not** silently enabled: both require a running authorized CA, secure provisioning, and a verified issuance/revocation workflow. No production CA credentials should be stored in Git.
 - Render's ephemeral filesystem may reset the SQLite database and generated CA keys across deployments. Use persistent storage or a managed database for state continuity. Never expose unauthenticated approval endpoints to untrusted users.
+
+## Optional Render demo TLS and real webhook integration
+
+The deployed FastAPI app can start its own **loopback-only** TLS test server by setting `AEGIS_ENABLE_TLS_DEMO=1` in Render's environment. This starts `service-01.demo.local` at `127.0.0.1:8443` inside the same Render instance. It is **not** the publicly accessible Render HTTPS certificate; it verifies the certificate served by the local sandbox TLS endpoint. The Responder records `verified`, `failed`, or `not_running` in the incident audit and returns the status from the approval API. Running multiple Render workers/instances can break this single-instance local demo; use one worker for the sandbox.
+
+Set `AEGIS_NOTIFY_WEBHOOK_URL` to a trusted **HTTPS webhook** you control to deliver a JSON incident message after remediation. The URL may contain a secret path or query, so store it **only in Render environment variables**, never Git. The audit records delivery status without the URL or secrets. Without the setting, notifications are clearly marked `not_configured`. Check `GET /api/integrations` for configured status (never exposes the webhook URL).
+
+## Optional private Smallstep ACME integration
+
+The new `backend/acme_client.py` is an **operator-run** RFC 8555 ACME issuance helper using Certbot. It does not yet replace the sandbox responder's Python-CA issuance. To use it in a **separate local private CA environment**, install and configure Smallstep step-ca with an ACME provisioner and HTTP-01 challenge routing for your owned sandbox hostname, trust the private CA at the OS level, and install Certbot. Then run:
+
+```bash
+python -m backend.acme_client --hostname service-01.demo.local --directory https://your-private-step-ca/acme/acme/directory
+```
+
+This cannot work by merely pushing GitHub code to a standard Render web service: the private CA, challenge routing, and trusted CA certificate must exist separately. Do not configure a public ACME directory for fake `.demo.local` names. The helper never exposes certificate issuance as a public API and reports only whether the subprocess succeeded. Fully automatic ACME issuance, revocation, and integration into the Responder still require provisioning and end-to-end validation.
+
+Run `python -m pytest -q` after pulling dependencies. No claim is made that the new integration tests have run on Render.
