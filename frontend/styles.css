@@ -120,11 +120,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 }
 .posture, .demo-intro { padding: clamp(17px, 3vw, 32px); }
 .posture { border-right: 1px solid #3a4b5f; }
-.posture-score { display: flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
-.posture-score strong { font-size: clamp(35px, 5vw, 57px); line-height: 1.08; letter-spacing: -.06em; }
-.posture-score span { color: #a7b9ce; font-size: 13px; }
-.posture-track { height: 5px; border-radius: 9px; background: #394859; margin: 13px 0 8px; }
-.posture-track span { display: block; width: 0; height: 100%; background: #a7ceff; border-radius: inherit; transition: width .5s ease; }
 .demo-intro h2 { margin: 6px 0; font-size: clamp(20px, 2.5vw, 30px); letter-spacing: -.025em; line-height: 1.18; }
 .demo-intro p { max-width: 50ch; font-size: 13px; }
 .demo-intro .primary { margin-top: 16px; }
@@ -157,4 +152,42 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   .stats { grid-template-columns: 1fr; }
   .heading { gap: 11px; }
 }
-@media (prefers-reduced-motion: reduce) { .posture-track span { transition: none; } }
+
+.health-gauge {
+  --gauge-color: #ffa6aa;
+  position: relative;
+  width: 108px;
+  margin: 8px 0;
+}
+.health-gauge[data-level="review"] { --gauge-color: #f7ce8d; }
+.health-gauge[data-level="good"] { --gauge-color: #8fe5bb; }
+.health-gauge svg { display: block; width: 100%; transform: rotate(-90deg); }
+.health-gauge circle { fill: none; stroke-width: 8; }
+.health-track { stroke: #394859; }
+.health-fill { stroke: var(--gauge-color); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; }
+.health-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.health-value strong { font-size: 32px; letter-spacing: -.05em; }
+.health-value span { font-size: 14px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  #overview.active .overview-hero,
+  #overview.active .metric,
+  #overview.active .overview-grid { animation: overview-enter 380ms ease-out both; }
+  #overview.active .metric:nth-child(1) { animation-delay: 55ms; }
+  #overview.active .metric:nth-child(2) { animation-delay: 95ms; }
+  #overview.active .metric:nth-child(3) { animation-delay: 135ms; }
+  #overview.active .overview-grid { animation-delay: 150ms; }
+  .primary, .secondary, .finding-row { transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease; }
+  .demo-intro .primary:hover { transform: translateY(-2px); }
+}
+@keyframes overview-enter {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -40,7 +40,41 @@ function incidentEvidence(incident) {
 }
 
 function findingHtml(f){const cert=state.certs.find(c=>c.id===f.certificate_id);return `<button class="finding-row" data-certificate="${esc(f.certificate_id)}"><span class="severity-dot ${esc(f.severity)}"></span><div class="grow"><strong>${esc(f.message)}</strong><small>${esc(cert?.hostname||f.certificate_id)} · ${esc(f.code)}</small></div><span class="severity">${esc(f.severity)}</span></button>`}
-function render(){const s=state.overview;if(!s)return;$('health').textContent=s.health;$('health-bar').style.width=s.health+'%';$('score-status').textContent=s.health>=85?'Good standing':s.health>=65?'Review recommended':'Needs attention';$('total').textContent=s.total;$('healthy').textContent=s.healthy;$('critical').textContent=s.critical;$('warnings').textContent=s.high+s.warnings;$('critical-status').textContent=s.critical?'Review critical findings':'No critical findings';$('top-findings').innerHTML=state.findings.slice(0,5).map(findingHtml).join('')||'<p>No findings detected.</p>';$('finding-list').innerHTML=state.findings.map(findingHtml).join('')||'<p>No findings detected.</p>';$('inventory-rows').innerHTML=state.certs.filter(c=>c.hostname.includes(($('search').value||'').toLowerCase())).map(c=>{const bad=state.findings.some(f=>f.certificate_id===c.id);return `<tr><td>${esc(c.hostname)}</td><td>${esc(c.days_remaining)} days</td><td>${esc(c.key_type)}-${esc(c.key_bits)}</td><td><span class="status ${bad?'bad':''}">${bad?'At risk':'Healthy'}</span></td><td>${esc(c.fingerprint)}…</td></tr>`}).join('');$('explanation-list').innerHTML=`<p class="guide"><strong>Analysis mode:</strong> ${esc(state.explanationMode==='groq-llm'?'Groq LLM (verified findings only)':'Deterministic guidance (LLM not configured or unavailable)')}</p>`+state.explanations.map(g=>`<div class="guide"><strong>${esc(g.finding_id)}</strong><div>${esc(g.explanation)}</div></div>`).join('')||'<p>No guidance needed.</p>';$('incident-list').innerHTML=state.incidents.map(i=>`<div class="incident-card"><h3>${esc(i.type)} <span class="status ${i.status==='resolved'?'':'bad'}">${esc(i.status === 'resolved' ? 'Sandbox rotation complete' : i.status.replaceAll('_',' '))}</span></h3><p>Certificate: ${esc(state.certs.find(c=>c.id===i.certificate_id)?.hostname||state.steps[i.id]?.comparison?.before?.hostname||i.certificate_id)} · ${esc(new Date(i.created_at).toLocaleString())}</p>${i.status==='pending_approval'?`<button class="primary" data-approve="${esc(i.id)}">Approve & remediate</button><button class="secondary" data-reject="${esc(i.id)}">Reject</button>`:''}${i.error?`<p>${esc(i.error)}</p>`:''}${incidentEvidence(i)}</div>`).join('')||'<p>No incidents. Use “Simulate incident” to demonstrate the workflow.</p>';$('audit-list').innerHTML=state.audit.map(a=>`<div class="activity"><div><strong>${esc(a.action)}</strong><div style="color:#7f94ae;margin-top:5px">${esc(a.details)}</div></div><span>${esc(new Date(a.timestamp).toLocaleString())}</span></div>`).join('');$('recent-audit').innerHTML=state.audit.slice(0,3).map(a=>`<div class="activity">${esc(a.action)}<span>${esc(new Date(a.timestamp).toLocaleTimeString())}</span></div>`).join('')}
+let healthTarget;
+let displayedHealth = 0;
+let healthFrame;
+
+function animateHealth(target) {
+  if (target === healthTarget) return;
+  healthTarget = target;
+  cancelAnimationFrame(healthFrame);
+  $('health-gauge').setAttribute('aria-label', `Certificate health ${target}%`);
+  $('health-gauge').dataset.level = target >= 85 ? 'good' : target >= 65 ? 'review' : 'attention';
+
+  function draw(value) {
+    displayedHealth = value;
+    $('health').textContent = Math.round(value);
+    $('health-fill').style.strokeDashoffset = 100 - value;
+  }
+
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    draw(target);
+    return;
+  }
+
+  const from = displayedHealth;
+  const started = performance.now();
+  draw(from);
+  function tick(now) {
+    const progress = Math.min((now - started) / 950, 1);
+    const eased = 1 - (1 - progress) ** 3;
+    draw(from + (target - from) * eased);
+    if (progress < 1) healthFrame = requestAnimationFrame(tick);
+  }
+  healthFrame = requestAnimationFrame(tick);
+}
+
+function render(){const s=state.overview;if(!s)return;animateHealth(s.health);$('score-status').textContent=s.health>=85?'Good standing':s.health>=65?'Review recommended':'Needs attention';$('total').textContent=s.total;$('healthy').textContent=s.healthy;$('critical').textContent=s.critical;$('warnings').textContent=s.high+s.warnings;$('critical-status').textContent=s.critical?'Review critical findings':'No critical findings';$('top-findings').innerHTML=state.findings.slice(0,5).map(findingHtml).join('')||'<p>No findings detected.</p>';$('finding-list').innerHTML=state.findings.map(findingHtml).join('')||'<p>No findings detected.</p>';$('inventory-rows').innerHTML=state.certs.filter(c=>c.hostname.includes(($('search').value||'').toLowerCase())).map(c=>{const bad=state.findings.some(f=>f.certificate_id===c.id);return `<tr><td>${esc(c.hostname)}</td><td>${esc(c.days_remaining)} days</td><td>${esc(c.key_type)}-${esc(c.key_bits)}</td><td><span class="status ${bad?'bad':''}">${bad?'At risk':'Healthy'}</span></td><td>${esc(c.fingerprint)}…</td></tr>`}).join('');$('explanation-list').innerHTML=`<p class="guide"><strong>Analysis mode:</strong> ${esc(state.explanationMode==='groq-llm'?'Groq LLM (verified findings only)':'Deterministic guidance (LLM not configured or unavailable)')}</p>`+state.explanations.map(g=>`<div class="guide"><strong>${esc(g.finding_id)}</strong><div>${esc(g.explanation)}</div></div>`).join('')||'<p>No guidance needed.</p>';$('incident-list').innerHTML=state.incidents.map(i=>`<div class="incident-card"><h3>${esc(i.type)} <span class="status ${i.status==='resolved'?'':'bad'}">${esc(i.status === 'resolved' ? 'Sandbox rotation complete' : i.status.replaceAll('_',' '))}</span></h3><p>Certificate: ${esc(state.certs.find(c=>c.id===i.certificate_id)?.hostname||state.steps[i.id]?.comparison?.before?.hostname||i.certificate_id)} · ${esc(new Date(i.created_at).toLocaleString())}</p>${i.status==='pending_approval'?`<button class="primary" data-approve="${esc(i.id)}">Approve & remediate</button><button class="secondary" data-reject="${esc(i.id)}">Reject</button>`:''}${i.error?`<p>${esc(i.error)}</p>`:''}${incidentEvidence(i)}</div>`).join('')||'<p>No incidents. Use “Simulate incident” to demonstrate the workflow.</p>';$('audit-list').innerHTML=state.audit.map(a=>`<div class="activity"><div><strong>${esc(a.action)}</strong><div style="color:#7f94ae;margin-top:5px">${esc(a.details)}</div></div><span>${esc(new Date(a.timestamp).toLocaleString())}</span></div>`).join('');$('recent-audit').innerHTML=state.audit.slice(0,3).map(a=>`<div class="activity">${esc(a.action)}<span>${esc(new Date(a.timestamp).toLocaleTimeString())}</span></div>`).join('')}
 function tab(name){state.tab=name;document.querySelectorAll('.panel').forEach(e=>e.classList.toggle('active',e.id===name));document.querySelectorAll('.nav').forEach(e=>e.classList.toggle('active',e.dataset.tab===name));const titles={overview:'Certificate security',inventory:'Certificate inventory',findings:'Risk findings',incidents:'Incident response',audit:'Audit trail'};$('page-title').textContent=titles[name];$('breadcrumb').textContent=titles[name];$('page-subtitle').textContent={
   overview:'Review certificate risks and test how AEGIS PKI responds.',
   inventory:'Search the sandbox certificate inventory.',
