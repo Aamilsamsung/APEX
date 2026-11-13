@@ -365,6 +365,13 @@ def remediation_steps(incident_id):
                     step('Owner notification failed','Webhook delivery failed or was rejected; see the audit log for details.',at)
         elif action=='notification.mocked':
             step('Owner notification simulated','A local notification record was written; no external message was sent.',at)
+        elif action=='remediation.local_acme_approved':
+            step('Local ACME recovery approved','Operator authorized the allowlisted local ACME worker job; issuance is not yet confirmed.',at)
+        elif action=='worker.job.completed' and data.get('action')=='acme_recovery':
+            if data.get('ok'):
+                step('ACME certificate issued locally','Local worker reported successful reissuance and SAN verification. CA revocation and live TLS redeployment remain unverified.',at)
+            else:
+                step('Local ACME recovery failed','Local worker reported a failed ACME job. Inspect worker audit evidence.',at)
         elif action=='remediation.failed': step('Remediation failed',str(data.get('error','Unknown error')),at)
     return {'incident_id':incident_id,'status':incident['status'],'steps':steps,'comparison':comparison,'deployment':deployment}
 
