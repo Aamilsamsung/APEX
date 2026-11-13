@@ -163,3 +163,60 @@ def worker_ping(request:Request):
     if not token or not secrets.compare_digest(provided,token):
         raise HTTPException(401,'Worker token required')
     return {'ok':True,'mode':'connectivity-only','message':'Remote worker authenticated; job execution not enabled'}
+
+# Explicitly authorized local-worker verification jobs.
+# Demo queue uses the existing SQLite DB; Render free restarts can erase it.
+def require_worker(request:Request):
+    expected=os.environ.get('AEGIS_WORKER_TOKEN','')
+    if not expected or not secrets.compare_digest(request.headers.get('X-Aegis-Worker-Token',''),expected):
+        raise HTTPException(401,'Worker token required')
+
+def init_worker_jobs():
+    with core.connect() as db:
+        db.execute('''CREATE TABLE IF NOT EXISTS worker_jobs(
+            id TEXT PRIMARY KEY, action TEXT NOT NULL, hostname TEXT NOT NULL,
+            status TEXT NOT NULL, created_at TEXT NOT NULL, result TEXT)''')
+
+@app.post('/api/worker/jobs/test')
+def enqueue_worker_test(request:Request):
+    require_operator(request)
+    init_worker_jobs()
+    job_id=secrets.token_hex(12)
+    with core.connect() as db:
+        db.execute('INSERT INTO worker_jobs(id,action,hostname,status,created_at) VALUES(?,?,?,?,?)',
+                   (job_id,'inspect_certificate','service-01.demo.local','queued',core.timestamp()))
+    core.audit('worker.job.queued',{'job_id':job_id,'action':'inspect_certificate'})
+    return {'id':job_id,'status':'queued','action':'inspect_certificate'}
+
+@app.get('/api/worker/jobs')
+def worker_jobs(request:Request):
+    require_worker(request)
+    init_worker_jobs()
+    with core.connect() as db:
+        return [dict(row) for row in db.execute('SELECT * FROM worker_jobs ORDER BY created_at DESC LIMIT 20')]
+
+@app.post('/api/worker/jobs/{job_id}/claim')
+def worker_claim(job_id:str,request:Request):
+    require_worker(request)
+    init_worker_jobs()
+    with core.connect() as db:
+        cur=db.execute("UPDATE worker_jobs SET status='running' WHERE id=? AND status='queued'",(job_id,))
+        if not cur.rowcount: raise HTTPException(409,'Job unavailable or already claimed')
+    core.audit('worker.job.claimed',{'job_id':job_id})
+    return {'id':job_id,'status':'running'}
+
+class WorkerResult(BaseModel):
+    ok:bool
+    details:str
+
+@app.post('/api/worker/jobs/{job_id}/complete')
+def worker_complete(job_id:str,body:WorkerResult,request:Request):
+    require_worker(request)
+    init_worker_jobs()
+    if len(body.details)>2000: raise HTTPException(400,'Result too long')
+    with core.connect() as db:
+        cur=db.execute("UPDATE worker_jobs SET status=?,result=? WHERE id=? AND status='running'",
+                       ('completed' if body.ok else 'failed',body.details,job_id))
+        if not cur.rowcount: raise HTTPException(409,'Job not running')
+    core.audit('worker.job.completed',{'job_id':job_id,'ok':body.ok,'details':body.details})
+    return {'id':job_id,'status':'completed' if body.ok else 'failed'}
