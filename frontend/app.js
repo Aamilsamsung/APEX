@@ -183,8 +183,7 @@ function openCertificateReview(id){
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">${eligible?`<button class="primary" id="request-cert-renewal">${expiryFinding?'Renew certificate':'Fix certificate'} (sandbox)</button>`:''}${realAcmeEligible?'<button class="secondary" id="request-real-acme">Request real ACME renewal (Ubuntu worker)</button>':''}<button class="secondary" id="close-cert-review">Close</button></div>`;
   modal.querySelector('#close-cert-review').onclick=()=>modal.close();
   modal.querySelector('#request-real-acme')?.addEventListener('click',async()=>{
-    const approver=prompt('Enter your operator name to approve a real Smallstep ACME renewal on your Ubuntu worker:');
-    if(!approver?.trim())return;
+    const approver='APEX Demo Operator';
     if(!confirm('Queue REAL ACME renewal for service-01.demo.local? This will execute only if the separately authenticated Ubuntu worker is online and explicitly enabled.'))return;
     const btn=modal.querySelector('#request-real-acme');btn.disabled=true;
     try{
@@ -195,8 +194,7 @@ function openCertificateReview(id){
     }catch(err){btn.disabled=false;await refresh();notice('Real ACME request: '+err.message,true)}
   });
   modal.querySelector('#request-cert-renewal')?.addEventListener('click',async()=>{
-    const approver=prompt('Human approval required: enter your operator name to authorize replacement of '+cert.hostname);
-    if(!approver?.trim())return;
+    const approver='APEX Demo Operator';
     if(!confirm('Approve sandbox certificate renewal for '+cert.hostname+'? The old certificate will be superseded and the replacement will be validated.'))return;
     const btn=modal.querySelector('#request-cert-renewal');btn.disabled=true;btn.textContent='Renewing…';
     let incidentId=null;
@@ -216,7 +214,7 @@ function openCertificateReview(id){
   });
   modal.showModal();
 }
-document.addEventListener('click',async e=>{const certRow=e.target.closest('[data-open-cert]');if(certRow){openCertificateReview(certRow.dataset.openCert);return;}const nav=e.target.closest('[data-tab],[data-goto]');if(nav)tab(nav.dataset.tab||nav.dataset.goto);const finding=e.target.closest('[data-certificate]');if(finding){state.selectedCert=finding.dataset.certificate;tab('overview');renderMap();$('map-service').focus({preventScroll:true});$('certificate-map').scrollIntoView({block:'center'});}const approve=e.target.closest('[data-approve]');if(approve){const actor=prompt('Enter operator name to explicitly approve sandbox certificate rotation:');if(!actor)return;try{await api(`incidents/${approve.dataset.approve}/approve`,{method:'POST',body:JSON.stringify({approver:actor})});state.animatedIncident=approve.dataset.approve;await refresh();notice('Sandbox rotation complete. See incident evidence for the live TLS check.')}catch(err){notice(err.message,true)}}const reject=e.target.closest('[data-reject]');if(reject){try{await api(`incidents/${reject.dataset.reject}/reject`,{method:'POST'});await refresh();notice('Remediation rejected; compromised certificate remains at risk.')}catch(err){notice(err.message,true)}}});
+document.addEventListener('click',async e=>{const certRow=e.target.closest('[data-open-cert]');if(certRow){openCertificateReview(certRow.dataset.openCert);return;}const nav=e.target.closest('[data-tab],[data-goto]');if(nav)tab(nav.dataset.tab||nav.dataset.goto);const finding=e.target.closest('[data-certificate]');if(finding){state.selectedCert=finding.dataset.certificate;tab('overview');renderMap();$('map-service').focus({preventScroll:true});$('certificate-map').scrollIntoView({block:'center'});}const approve=e.target.closest('[data-approve]');if(approve){const actor='APEX Demo Operator';try{await api(`incidents/${approve.dataset.approve}/approve`,{method:'POST',body:JSON.stringify({approver:actor})});state.animatedIncident=approve.dataset.approve;await refresh();notice('Sandbox rotation complete. See incident evidence for the live TLS check.')}catch(err){notice(err.message,true)}}const reject=e.target.closest('[data-reject]');if(reject){try{await api(`incidents/${reject.dataset.reject}/reject`,{method:'POST'});await refresh();notice('Remediation rejected; compromised certificate remains at risk.')}catch(err){notice(err.message,true)}}});
 $('map-service').addEventListener('change', event => {state.selectedCert=event.target.value;renderMap()});$('scan').addEventListener('click',runScan);$('simulate').addEventListener('click',simulate);$('simulate2').addEventListener('click',simulate);$('search').addEventListener('input',render);$('clock').textContent=new Date().toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});refresh();
 // Extended sandbox diagnostics. Results are never presented as live internet scans.
 async function showDiagnostics(){
