@@ -168,6 +168,7 @@ function openCertificateReview(id){
   const findings=state.findings.filter(f=>f.certificate_id===id);
   const previous=state.incidents.filter(i=>i.certificate_id===id);
   const eligible=cert.source!=='uploaded-public-cert'&&findings.length>0&&!previous.some(i=>['pending_approval','approved','executing'].includes(i.status));
+  const realAcmeEligible=eligible&&cert.hostname==='service-01.demo.local';
   let modal=document.getElementById('certificate-review-dialog');
   if(!modal){modal=document.createElement('dialog');modal.id='certificate-review-dialog';modal.style.cssText='max-width:570px;width:calc(100% - 30px);background:#101c2c;color:#f0f4fa;border:1px solid #53647c;border-radius:14px;padding:24px;max-height:85vh;overflow:auto';document.body.appendChild(modal);}
   const completed=state.incidents.filter(i=>i.status==='resolved'&&i.type==='CERTIFICATE_RENEWAL').find(i=>state.steps[i.id]?.comparison?.after?.serial===cert.serial);
@@ -178,8 +179,20 @@ function openCertificateReview(id){
     ${completed?`<div style="border-left:3px solid #64c99a;padding-left:12px"><strong>Renewed successfully in sandbox</strong><p>Old expiry: ${esc(before?.expires_at||'See audit')}<br>New expiry: ${esc(cert.expires_at)}<br>Old serial: ${esc(before?.serial||'See audit')}<br>New serial: ${esc(cert.serial)}</p><p>Fix: Replaced the expiring certificate with a fresh RSA-2048 certificate, updated the active sandbox inventory, and recorded revocation and verification evidence.</p></div>`:''}
     ${cert.source==='uploaded-public-cert'?'<p>Imported public certificate: analysis only. Its owner/CA must authorize renewal.</p>':''}
     ${previous.length?'<h3>Remediation history</h3>'+previous.map(i=>`<p>${esc(i.type)}: <strong>${esc(i.status)}</strong> ${esc(i.created_at)}</p>`).join(''):''}
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">${eligible?`<button class="primary" id="request-cert-renewal">${expiryFinding?'Renew certificate':'Fix certificate'}</button>`:''}<button class="secondary" id="close-cert-review">Close</button></div>`;
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">${eligible?`<button class="primary" id="request-cert-renewal">${expiryFinding?'Renew certificate':'Fix certificate'} (sandbox)</button>`:''}${realAcmeEligible?'<button class="secondary" id="request-real-acme">Request real ACME renewal (Ubuntu worker)</button>':''}<button class="secondary" id="close-cert-review">Close</button></div>`;
   modal.querySelector('#close-cert-review').onclick=()=>modal.close();
+  modal.querySelector('#request-real-acme')?.addEventListener('click',async()=>{
+    const approver=prompt('Enter your operator name to approve a real Smallstep ACME renewal on your Ubuntu worker:');
+    if(!approver?.trim())return;
+    if(!confirm('Queue REAL ACME renewal for service-01.demo.local? This will execute only if the separately authenticated Ubuntu worker is online and explicitly enabled.'))return;
+    const btn=modal.querySelector('#request-real-acme');btn.disabled=true;
+    try{
+      const request=await api('certificates/renewal-request',{method:'POST',body:JSON.stringify({certificate_id:id})});
+      const job=await api('incidents/'+request.incident_id+'/approve-local-acme',{method:'POST',body:JSON.stringify({approver:approver.trim(),hostname:cert.hostname})});
+      modal.close();await refresh();tab('incidents');
+      notice('Real ACME job '+job.job_id+' queued. Ubuntu worker must be online with --enable-acme; deployment and revocation are NOT yet verified.');
+    }catch(err){btn.disabled=false;await refresh();notice('Real ACME request: '+err.message,true)}
+  });
   modal.querySelector('#request-cert-renewal')?.addEventListener('click',async()=>{
     const approver=prompt('Human approval required: enter your operator name to authorize replacement of '+cert.hostname);
     if(!approver?.trim())return;
