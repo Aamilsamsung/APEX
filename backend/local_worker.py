@@ -141,6 +141,42 @@ def verify_served_certificate(cert_path: str, host: str = "127.0.0.1", port: int
         return False
 
 
+
+def scan_local_demo_endpoints() -> list[dict]:
+    """Read-only loopback TLS observations; never transmit keys or certificate PEM."""
+    import socket
+    from datetime import datetime, timezone
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    targets=((8443,"service-01.demo.local"),(8445,"weak.demo.local"),(8446,"service-01.demo.local"))
+    observations=[]
+    for port,expected in targets:
+        row=dict(port=port,expected_hostname=expected,reachable=False,subject='',serial='',
+                 key_bits=0,days_remaining=0,hostname_matches=False,error='')
+        try:
+            ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname=False
+            ctx.verify_mode=ssl.CERT_NONE
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=0')
+            with socket.create_connection(("127.0.0.1",port),timeout=4) as sock:
+                with ctx.wrap_socket(sock,server_hostname=expected) as tls:
+                    der=tls.getpeercert(binary_form=True)
+            cert=x509.load_der_x509_certificate(der)
+            try:
+                sans=cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+            except x509.ExtensionNotFound:
+                sans=[v.value for v in cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)]
+            from .chains import dns_matches
+            row.update(reachable=True,subject=cert.subject.rfc4514_string()[:300],
+                       serial=format(cert.serial_number,'X'),key_bits=getattr(cert.public_key(),'key_size',0),
+                       days_remaining=int((cert.not_valid_after_utc-datetime.now(timezone.utc)).total_seconds()//86400),
+                       hostname_matches=any(dns_matches(name,expected) for name in sans))
+        except (OSError,ssl.SSLError,ValueError) as exc:
+            row['error']=type(exc).__name__
+        observations.append(row)
+    return observations
+
 def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_acme: bool = False, directory: str = DEFAULT_DIRECTORY) -> int:
     if not site.startswith("https://") or not token:
         print("HTTPS site and AEGIS_WORKER_TOKEN required", file=sys.stderr)
@@ -153,8 +189,14 @@ def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_a
         with urllib.request.urlopen(urllib.request.Request(url,data=data,headers=h,method=method),timeout=20) as response:
             return json.load(response)
     print("APEX worker started (" + ("explicitly enabled demo ACME issuance" if enable_acme else "certificate inspection only") + ").",flush=True)
+    last_scan=0.0
     while True:
         try:
+            if time.monotonic()-last_scan>=30:
+                observations=scan_local_demo_endpoints()
+                call(site.rstrip('/')+'/api/worker/local-tls-report','POST',{'observations':observations})
+                print('Local TLS scan reported: '+', '.join(str(o['port'])+(' OK' if o['reachable'] else ' unavailable') for o in observations),flush=True)
+                last_scan=time.monotonic()
             jobs=call(base)
             for job in jobs:
                 if job["status"]!="queued" or job["hostname"]!="service-01.demo.local" or (job["action"]!="inspect_certificate" and not (enable_acme and job["action"]=="acme_recovery")):
