@@ -263,3 +263,6 @@ document.getElementById('certificate-import-form')?.addEventListener('submit',as
     event.target.reset();
   }catch(error){notice('Import failed: '+error.message,true)}
 });
+
+// Refresh pending worker approvals without requiring the operator to reload the page.
+setInterval(()=>{if(state.tab==='incidents'&&state.incidents.some(i=>i.type==='REAL_ACME_RENEWAL'&&['approved','executing'].includes(i.status)))refresh();},5000);
