@@ -1,0 +1,37 @@
+/* AEGIS polished visual language adapted from supplied React design.
+   Presentation only: all dashboard data and controls remain connected to APEX backend. */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&family=Hanken+Grotesk:wght@400..700&family=Martian+Mono:wght@400..600&display=swap');
+:root{font-family:'Hanken Grotesk',sans-serif!important;color:#e8e6dd!important;background:#0c1010!important;--aegis-accent:#7dd8bf}
+body{background:#0c1010!important;color:#e8e6dd!important}
+.shell{background:#0c1010!important}
+.sidebar{background:#0c1010!important;border-right:1px solid #293330!important}
+.brand{font-family:'Bricolage Grotesque',sans-serif!important;letter-spacing:-.025em!important}
+.brand b{color:#7dd8bf!important}
+.brand-icon{background:#182a25!important;border:1px solid #36574b!important;color:#7dd8bf!important}
+.navlabel,.mini-title{color:#82918b!important}
+.nav{color:#a6b2ad!important;transition:background .2s,color .2s,transform .2s!important}
+.nav:hover{background:#192522!important;color:#e8e6dd!important;transform:translateX(3px)}
+.nav.active{background:#1a3029!important;color:#9de8d0!important;border-color:#7dd8bf!important}
+.side-bottom{border-color:#293330!important;color:#d7ded8!important}
+.main{background:radial-gradient(ellipse 65% 35% at 75% 0%,rgba(53,119,98,.09),transparent),#0c1010!important}
+.topbar{background:#0c1010!important;border-color:#293330!important}
+.card,.guide,.modal-content,.dialog-content{background:#121817!important;border:1px solid #2b3632!important;box-shadow:0 12px 38px rgba(0,0,0,.13)!important}
+.card{transition:border-color .25s,transform .25s!important}
+.card:hover{border-color:#3d5d51!important}
+h1,h2,h3,.brand{font-family:'Bricolage Grotesque','Hanken Grotesk',sans-serif!important}
+h1,h2,h3{letter-spacing:-.025em}
+button{transition:background .2s,border-color .2s,transform .2s!important}
+button:not(:disabled):active{transform:scale(.98)}
+button.primary,.primary{background:#7dd8bf!important;color:#08251c!important;border-color:#7dd8bf!important}
+button.primary:hover,.primary:hover{background:#a2efd8!important}
+button.secondary,.secondary{border-color:#3d5d51!important;color:#b8e6d7!important}
+input,select,textarea{background:#111a17!important;color:#e8e6dd!important;border-color:#34443d!important}
+input:focus,select:focus,textarea:focus{outline-color:#7dd8bf!important;border-color:#7dd8bf!important}
+table{border-collapse:collapse}
+th{background:#18211e!important;color:#9baaa4!important;font-family:'Martian Mono',monospace!important;font-size:10px!important;letter-spacing:.07em!important}
+td{border-color:#293330!important}
+tr:hover td{background:rgba(125,216,191,.055)!important}
+.status:not(.bad){color:#8ee2c7}
+a{color:#8ee2c7}
+@media(max-width:760px){.sidebar{background:#0c1010!important}.card{border-radius:12px!important}}
+@media(prefers-reduced-motion:reduce){.nav,.card,button{transition:none!important}}
