@@ -174,7 +174,29 @@ function tab(name){state.tab=name;document.querySelectorAll('.panel').forEach(e=
   audit:'Inspect recorded scans, incidents, and operator decisions.'
 }[name];document.querySelectorAll('.nav').forEach(e=>e.setAttribute('aria-current',e.dataset.tab===name?'page':'false'));window.scrollTo({top:0})}
 async function runScan(){const btn=$('scan');btn.disabled=true;btn.textContent='Scanning certificates…';try{await api('scan',{method:'POST'});await refresh();notice('Scan complete. Findings updated from local certificate files.')}catch(e){notice(e.message,true)}finally{btn.disabled=false;btn.textContent='Run security scan'}}
-async function simulate(){const c=state.certs.find(c=>c.source!=='uploaded-public-cert'&&!c.compromised&&!state.incidents.some(i=>i.certificate_id===c.id&&i.status==='pending_approval'));if(!c)return notice('No eligible certificates available',true);if(!confirm(`Simulate a compromised private key for ${c.hostname}? This creates a test incident only.`))return;try{const result=await api('simulate-compromise',{method:'POST',body:JSON.stringify({certificate_id:c.id})});state.animatedIncident=result.incident_id;await refresh();tab('incidents');notice('Simulated compromise created. Human approval is required for remediation.')}catch(e){notice(e.message,true)}}
+async function simulate(){
+  const eligible=state.certs.map(c=>({...c,issues:state.findings.filter(f=>f.certificate_id===c.id)}))
+    .filter(c=>c.source!=='uploaded-public-cert'&&!c.compromised&&c.issues.length>0
+      &&!state.incidents.some(i=>i.certificate_id===c.id&&['pending_approval','approved','executing'].includes(i.status)))
+    .sort((a,b)=>b.issues.length-a.issues.length);
+  if(!eligible.length)return notice('No eligible at-risk sandbox certificates. Run a security scan first; unverified JSON metadata cannot be used for remediation.',true);
+  document.getElementById('apex-sim-picker')?.remove();
+  const overlay=document.createElement('div');overlay.id='apex-sim-picker';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:grid;place-items:center;padding:20px';
+  const panel=document.createElement('div');panel.style.cssText='width:min(560px,100%);padding:26px;background:#151e1c;border:1px solid #547568;border-radius:16px;color:#e9f4ee;box-shadow:0 20px 70px #0009';
+  const heading=document.createElement('h2');heading.textContent='Select an at-risk certificate';heading.style.margin='0 0 10px';
+  const help=document.createElement('p');help.textContent='Choose a certificate with verified scanner findings. This simulates a NEW key-compromise incident for that certificate; it does not claim the detected weakness proves a compromise.';
+  const select=document.createElement('select');select.setAttribute('aria-label','At-risk certificate');select.style.cssText='width:100%;padding:12px;background:#24332e;color:white;border:1px solid #668476;border-radius:8px;margin:12px 0';
+  eligible.forEach((c,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=c.hostname+' — '+c.issues.length+' finding(s)';select.append(o)});
+  const details=document.createElement('p');details.style.cssText='min-height:50px;font-size:13px;color:#bdd3c7';
+  function update(){const c=eligible[Number(select.value)];details.textContent='Detected findings: '+c.issues.map(f=>f.code||f.type||f.rule||f.severity||'Risk').join(', ')}
+  select.addEventListener('change',update);update();
+  const actions=document.createElement('div');actions.style.cssText='display:flex;justify-content:flex-end;gap:12px;margin-top:16px';
+  const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.className='secondary';cancel.onclick=()=>overlay.remove();
+  const proceed=document.createElement('button');proceed.textContent='Simulate compromise';proceed.className='primary';
+  proceed.onclick=async()=>{const c=eligible[Number(select.value)];proceed.disabled=true;proceed.textContent='Creating incident…';try{const result=await api('simulate-compromise',{method:'POST',body:JSON.stringify({certificate_id:c.id})});overlay.remove();state.animatedIncident=result.incident_id;await refresh();tab('incidents');notice('Simulated compromise for '+c.hostname+'. Human approval is required for remediation.')}catch(e){notice(e.message,true);proceed.disabled=false;proceed.textContent='Simulate compromise'}};
+  actions.append(cancel,proceed);panel.append(heading,help,select,details,actions);overlay.append(panel);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()});document.body.append(overlay);
+}
 function openCertificateReview(id){
   const cert=state.certs.find(c=>c.id===id);
   if(!cert)return;
