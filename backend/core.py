@@ -1,6 +1,6 @@
 """AEGIS PKI: local, authorized certificate security sandbox."""
 from __future__ import annotations
-import json, os, sqlite3, ssl, socket, threading, uuid, urllib.request, urllib.error, hashlib, time
+import hmac, json, os, sqlite3, ssl, socket, threading, uuid, urllib.request, urllib.error, hashlib, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from cryptography import x509
@@ -290,7 +290,9 @@ def simulate_compromise(cert_id):
             incident_id=uuid.uuid4().hex[:12]
             c.execute('UPDATE certificates SET compromised=1 WHERE id=?',(cert_id,))
             c.execute('INSERT INTO incidents(id,certificate_id,type,status,created_at) VALUES(?,?,?,?,?)',(incident_id,cert_id,'SIMULATED_KEY_COMPROMISE','pending_approval',timestamp()))
-        audit('incident.simulated',{'incident_id':incident_id,'certificate_id':cert_id,'evidence':'explicit sandbox simulation flag; not inferred from TLS'})
+        audit('incident.simulated',{'incident_id':incident_id,'certificate_id':cert_id,
+              'hostname':row['hostname'],'evidence':'explicit sandbox simulation flag; not inferred from TLS',
+              'rationale':'The flagged key can no longer be trusted in the sandbox; replace it only after approval'})
         scan()
     return incident_id
 
@@ -331,26 +333,34 @@ def approve_and_remediate(incident_id,actor):
         with connect() as c:
             incident=c.execute('SELECT * FROM incidents WHERE id=? AND status="pending_approval"',(incident_id,)).fetchone()
             if not incident: raise ValueError('Incident not pending approval')
+            if incident['type']=='REAL_ACME_RENEWAL':
+                raise ValueError('Use the explicit local ACME approval for this incident')
             row=c.execute('SELECT * FROM certificates WHERE id=? AND active=1',(incident['certificate_id'],)).fetchone()
             if not row: raise ValueError('Affected certificate no longer active')
+            if row['source']=='uploaded-public-cert' or not row['key_path']:
+                raise ValueError('Only managed sandbox certificates can be remediated')
             c.execute('UPDATE incidents SET status="executing",approved_at=? WHERE id=?',(timestamp(),incident_id))
         audit('remediation.approved',{'incident_id':incident_id,'approver':actor})
+        staged = False
+        finalized = False
         try:
             # This is an isolated sandbox workflow, not a production CA or ACME integration.
             old=describe(row)
             new_id,path,key_path=generate_cert(old['hostname'],days=365,bits=2048)
             new_cert=x509.load_pem_x509_certificate(Path(path).read_bytes())
-            assert new_cert.not_valid_after_utc>now()
-            assert new_cert.public_key().key_size>=2048
-            assert old['hostname'] in new_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+            replacement = describe({'path':path, 'id':new_id, 'hostname':old['hostname'],
+                                    'compromised':0, 'revoked':0, 'active':1, 'source':'sandbox-reissued'})
+            if assess(replacement):
+                raise RuntimeError('Replacement certificate failed sandbox policy validation')
+            fingerprint = new_cert.fingerprint(hashes.SHA256()).hex()
             audit('remediation.key_generated',{'incident_id':incident_id,'new_certificate_id':new_id,'key_bits':2048})
-            audit('remediation.certificate_issued',{'incident_id':incident_id,'new_certificate_id':new_id,'issuer':'AEGIS Sandbox Root CA'})
+            audit('remediation.certificate_issued',{'incident_id':incident_id,'new_certificate_id':new_id,
+                  'issuer':'AEGIS Sandbox Root CA','fingerprint':fingerprint})
             with connect() as c:
-                revocation_reason='superseded' if incident['type']=='CERTIFICATE_RENEWAL' else 'keyCompromise'
-                c.execute('INSERT INTO revoked_serials(serial,revoked_at,reason) VALUES(?,?,?)',(old['serial'],timestamp(),revocation_reason))
-                c.execute('UPDATE certificates SET revoked=1,active=0 WHERE id=?',(row['id'],))
+                c.execute('UPDATE certificates SET active=0 WHERE id=?',(row['id'],))
                 c.execute('INSERT INTO certificates(id,hostname,path,key_path,source) VALUES(?,?,?,?,?)',(new_id,old['hostname'],path,key_path,'sandbox-reissued'))
-            audit('remediation.revoked',{'incident_id':incident_id,'old_serial':old['serial'],'mechanism':'sandbox revocation registry','reason':revocation_reason})
+            staged = True
+            audit('remediation.replacement_staged',{'incident_id':incident_id,'new_certificate_id':new_id})
             # A live endpoint is optional; when present, verify the actual TLS-served certificate.
             live_verification={'status':'not_running','detail':'No local TLS endpoint was registered for this certificate'}
             requires_live_tls = os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1' and old['hostname']=='service-01.demo.local'
@@ -359,8 +369,8 @@ def approve_and_remediate(incident_id,actor):
                     for attempt in range(20):
                         try:
                             served=scan_tls_endpoint('127.0.0.1',8443,old['hostname'])
-                            if served['serial']==format(new_cert.serial_number,'x') and served['chain_valid'] and served['hostname_valid'] and not served['revoked']:
-                                live_verification={'status':'verified','endpoint':'127.0.0.1:8443','serial':served['serial']}
+                            if hmac.compare_digest(served['fingerprint'], fingerprint) and served['chain_valid'] and served['hostname_valid'] and not served['revoked']:
+                                live_verification={'status':'verified','endpoint':'127.0.0.1:8443','serial':served['serial'],'fingerprint':fingerprint}
                                 break
                         except (OSError,ssl.SSLError):
                             # The demo TLS server may briefly close its socket while
@@ -368,7 +378,8 @@ def approve_and_remediate(incident_id,actor):
                             pass
                         time.sleep(.2)
                     else: live_verification={'status':'failed' if requires_live_tls else 'not_running','detail':'Replacement was not observed on loopback TLS'}
-                except Exception as exc: live_verification={'status':'failed','detail':str(exc)}
+                except (ValueError, RuntimeError):
+                    live_verification={'status':'failed','detail':'Loopback TLS certificate could not be validated'}
             # Never claim a live deployment succeeded when endpoint verification failed.
             # In file-only sandbox mode, explicitly distinguish registry replacement from TLS deployment.
             if requires_live_tls and live_verification['status']!='verified':
@@ -382,19 +393,34 @@ def approve_and_remediate(incident_id,actor):
             else:
                 audit('remediation.deployment_verification_failed',{'incident_id':incident_id,**live_verification})
             with connect() as c:
+                revocation_reason='superseded' if incident['type']=='CERTIFICATE_RENEWAL' else 'keyCompromise'
+                c.execute('INSERT INTO revoked_serials(serial,revoked_at,reason) VALUES(?,?,?)',(old['serial'],timestamp(),revocation_reason))
+                c.execute('UPDATE certificates SET revoked=1 WHERE id=?',(row['id'],))
                 c.execute('UPDATE incidents SET status="resolved",resolved_at=? WHERE id=?',(timestamp(),incident_id))
-            from .notifications import notify
-            notification=notify(incident_id,old['hostname'],'resolved',live_verification)
+            finalized = True
+            audit('remediation.revoked',{'incident_id':incident_id,'old_serial':old['serial'],'mechanism':'sandbox revocation registry','reason':revocation_reason})
             audit('remediation.completed',{'incident_id':incident_id,'old_certificate':row['id'],'new_certificate':new_id,'remediation_type':incident['type'],
                   'steps':['sandbox CA revocation registry updated','fresh private key generated','CA-signed sandbox certificate issued','sandbox inventory replacement registered','replacement certificate validated'],
                   'limitation':'Local CA issuance (not ACME); live endpoint verification and webhook delivery recorded separately'})
+            from .notifications import notify
+            notification=notify(incident_id,old['hostname'],'resolved',live_verification)
             audit('remediation.notification_result',{'incident_id':incident_id,**notification})
             scan()
             return {'new_certificate_id':new_id,'incident_id':incident_id,'status':'resolved','tls_verification':live_verification,'notification':notification,
                     'remediation_steps':remediation_steps(incident_id)}
         except Exception as exc:
-            with connect() as c: c.execute('UPDATE incidents SET status="failed",error=? WHERE id=?',(str(exc),incident_id))
-            audit('remediation.failed',{'incident_id':incident_id,'error':str(exc)})
+            if finalized:
+                audit('remediation.follow_up_failed',{'incident_id':incident_id,'error_type':type(exc).__name__})
+                raise
+            with connect() as c:
+                if staged:
+                    c.execute('UPDATE certificates SET active=0 WHERE id=?',(new_id,))
+                    c.execute('UPDATE certificates SET active=1 WHERE id=?',(row['id'],))
+                c.execute('UPDATE incidents SET status="failed",error=? WHERE id=?',
+                          ('Sandbox rotation did not finish. See the incident timeline.',incident_id))
+            if staged:
+                audit('remediation.rolled_back',{'incident_id':incident_id,'restored_certificate_id':row['id']})
+            audit('remediation.failed',{'incident_id':incident_id,'error':type(exc).__name__})
             raise
 
 def remediation_steps(incident_id):
@@ -412,9 +438,21 @@ def remediation_steps(incident_id):
         if data.get('incident_id')!=incident_id: continue
         action=entry['action']; at=entry['timestamp']
         if action=='renewal.requested': step('Certificate renewal requested','Detected policy findings: '+', '.join(data.get('finding_codes',[]))+'. Human approval is required.',at)
-        elif action=='incident.simulated': step('Compromise detected (simulation)','A controlled incident flag was set. No real private-key theft was detected.',at)
+        elif action=='real_acme.renewal_requested': step('Local ACME renewal requested','The pinned sandbox service was selected for a real ACME renewal. Human approval is required.',at)
+        elif action=='incident.simulated':
+            detail='A controlled key-compromise flag was set for '+data.get('hostname','the selected sandbox certificate')+'.'
+            step('Compromise detected (simulation)',detail+' '+data.get('rationale','Human approval is required before replacement.'),at)
+        elif action=='remediation.key_generated':
+            step('Fresh private key generated','A new RSA-2048 private key was created locally.',at)
+        elif action=='remediation.certificate_issued':
+            step('Replacement certificate issued','The sandbox CA signed a new certificate and the replacement passed local certificate policy checks.',at)
+        elif action=='remediation.replacement_staged':
+            step('Active certificate updated','Selected the replacement in the sandbox inventory for verification.',at)
+        elif action=='remediation.revoked':
+            step('Old certificate revoked in sandbox registry','The sandbox CA registry recorded the old serial.',at)
         elif action=='remediation.approved': step('Human approval recorded',f"Operator {data.get('approver','unknown')} authorized the sandbox recovery.",at)
         elif action=='remediation.rejected': step('Remediation rejected','No certificate rotation was authorized.',at)
+        elif action=='remediation.rolled_back': step('Previous certificate restored','Verification did not complete. The previous inventory entry was restored without revoking its serial.',at)
         elif action=='remediation.completed':
             with connect() as c:
                 for label, key in (('before', 'old_certificate'), ('after', 'new_certificate')):
@@ -424,10 +462,6 @@ def remediation_steps(incident_id):
                         comparison[label] = {field: cert[field] for field in (
                             'hostname', 'expires_at', 'key_type', 'key_bits', 'fingerprint', 'serial'
                         )}
-            step('Old certificate revoked in sandbox registry','The previous certificate serial was added to the local revocation database. This is not OCSP/CRL publication.',at)
-            step('Fresh private key generated','A new RSA-2048 private key was created locally.',at)
-            step('Replacement certificate issued','The local sandbox CA signed a replacement certificate with the original hostname.',at)
-            step('Active certificate updated','The active inventory pointer was changed. The optional demo TLS server reloads on its next request.',at)
             step('Certificate properties verified','The replacement was checked for expiry, key strength and matching SAN; this is not proof of live TLS redeployment.',at)
         elif action in ('remediation.deployment_verified','remediation.registry_updated','remediation.deployment_verification_failed'):
             deployment = {**data, 'timestamp': at}
