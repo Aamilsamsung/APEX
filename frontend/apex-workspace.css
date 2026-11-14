@@ -1,0 +1,38 @@
+/* APEX operational dashboard v1. Original layout using Spectrum UI-inspired motion patterns. */
+.apex-dashboard-head{display:flex;justify-content:space-between;align-items:end;gap:24px;margin:5px 0 22px;padding:0 2px}
+.apex-kicker{display:inline-flex;align-items:center;gap:9px;font:600 10px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#a8e9d9}
+.apex-kicker i,.apex-hero-footer i{display:inline-block;width:7px;height:7px;background:#9df5dc;border-radius:50%;box-shadow:0 0 0 5px rgba(157,245,220,.08)}
+.apex-dash-title h2{font-size:clamp(28px,3vw,41px)!important;letter-spacing:-.06em!important;line-height:1.15!important;margin:13px 0 7px;font-weight:700!important}
+.apex-dash-title h2 em{font-style:normal;color:#93b4ad}
+.apex-dash-title p{font-size:13px;color:#9baab8}
+.apex-dash-actions{display:flex;gap:8px;flex-wrap:wrap}
+.apex-dash-chip{border:1px solid #30434b;background:#141f27;border-radius:7px;color:#8fa7ad;padding:8px 10px;font:500 10px 'IBM Plex Mono',monospace;white-space:nowrap}
+.apex-workspace{position:relative}
+.apex-workspace:before{content:"";position:absolute;inset:-1px;border-radius:21px;padding:1px;background:linear-gradient(125deg,rgba(175,247,227,.5),rgba(255,255,255,.02) 42%,rgba(98,142,156,.28));-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;z-index:3}
+.apex-workspace .overview-hero{grid-template-columns:minmax(235px,.78fr) minmax(350px,1.4fr)!important;min-height:360px!important;border-color:#344950!important;border-radius:20px!important}
+.apex-workspace .posture{background:linear-gradient(155deg,rgba(24,51,50,.85),rgba(13,27,32,.95))!important;border-right:1px solid #36514e!important;gap:14px!important}
+.apex-workspace .health-gauge{width:185px!important;height:185px!important}
+.apex-health-caption{max-width:190px;text-align:center;color:#728f92;font:500 10px/1.6 'IBM Plex Mono',monospace}
+.apex-workspace .demo-intro{padding:clamp(35px,4.5vw,68px)!important;position:relative;overflow:hidden}
+.apex-workspace .demo-intro:before{content:"";position:absolute;width:290px;height:290px;right:-80px;top:-120px;border-radius:50%;border:1px solid rgba(149,228,206,.12);box-shadow:0 0 0 45px rgba(149,228,206,.025),0 0 0 90px rgba(149,228,206,.013);pointer-events:none}
+.apex-workspace .demo-intro h2{font-size:clamp(36px,3.8vw,58px)!important;line-height:1.03!important;margin:17px 0 17px!important;letter-spacing:-.065em!important}
+.apex-workspace .demo-intro p{font-size:14px!important;max-width:420px!important;color:#a8b9c3!important}
+.apex-hero-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:27px}
+.apex-hero-actions .primary,.apex-hero-actions .secondary{margin:0!important;min-height:43px}
+.apex-hero-actions .secondary{background:transparent!important;border-color:#40585d!important}
+.apex-hero-footer{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:36px;color:#799598;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.07em}
+.apex-hero-footer span{display:flex;align-items:center;gap:10px}
+.apex-workspace .health-fill{transition:stroke-dashoffset 1.5s cubic-bezier(.2,.8,.2,1)!important}
+.stats{margin-top:16px!important}
+.metric{min-height:166px!important}
+.metric:after{content:"";position:absolute;right:21px;bottom:18px;width:37px;height:37px;border:1px solid rgba(149,228,206,.1);border-radius:11px;transform:rotate(14deg)}
+.metric:nth-child(2):after{border-color:rgba(255,140,155,.13)}
+.metric:nth-child(3):after{border-color:rgba(247,198,130,.13)}
+.metric strong{position:relative;z-index:1}
+.overview-grid{gap:16px!important}
+.priority-card,.map-card{min-height:330px}
+@keyframes apex-load-sweep{from{transform:translateX(-110%)}to{transform:translateX(180%)}}
+#health-trend:empty:before{content:"Loading recorded scan history";display:block;color:#8da2ae;font:500 12px 'IBM Plex Mono',monospace}
+@media(max-width:1100px){.apex-workspace .overview-hero{grid-template-columns:minmax(195px,.75fr) minmax(300px,1.25fr)!important}.apex-workspace .demo-intro{padding:34px!important}.apex-workspace .demo-intro h2{font-size:40px!important}.apex-dash-actions{display:none}}
+@media(max-width:760px){.apex-dashboard-head{margin:10px 0 18px}.apex-workspace .overview-hero{grid-template-columns:1fr!important}.apex-workspace .posture{border-right:0!important;border-bottom:1px solid #36514e!important}.apex-workspace .health-gauge{width:145px!important;height:145px!important}.apex-workspace .demo-intro{padding:28px!important}.apex-workspace .demo-intro h2{font-size:38px!important}.apex-hero-footer{margin-top:25px}.apex-dash-title h2{font-size:30px!important}}
+@media(prefers-reduced-motion:reduce){.apex-workspace .health-fill{transition:none!important}}
