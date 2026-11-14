@@ -536,22 +536,29 @@ def explain_with_llm():
                    {'role':'user','content':prompt}]}
     try:
         if provider=='gemini':
-            model=os.environ.get('GEMINI_MODEL','gemini-2.5-flash').strip()
+            model=os.environ.get('GEMINI_MODEL','').strip() or 'gemini-3.5-flash-lite'
             # Google model-list responses include "models/"; normalize either form.
             if model.startswith('models/'):
                 model=model[len('models/'):]
             if not model or not model.replace('-','').replace('.','').isalnum():
                 raise ValueError('Invalid Gemini model name')
             url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent'
+            # Gemini only needs rule categories and severity to explain the risks.
+            # Keep certificate identifiers and instance-specific evidence local.
+            gemini_findings={str(index): finding for index,finding in enumerate(fs,1)}
+            gemini_prompt=json.dumps([
+                {'id':identifier,'code':finding['code'],'severity':finding['severity']}
+                for identifier,finding in gemini_findings.items()
+            ])
             payload={'systemInstruction':{'parts':[{'text':request['messages'][0]['content']}]},
-                     'contents':[{'role':'user','parts':[{'text':prompt}]}],
-                     'generationConfig':{'temperature':0,'responseMimeType':'application/json'}}
+                     'contents':[{'role':'user','parts':[{'text':gemini_prompt}]}],
+                     'generationConfig':{'responseMimeType':'application/json'}}
             req=urllib.request.Request(url,data=json.dumps(payload).encode(),
                 headers={'x-goog-api-key':key,'Content-Type':'application/json'},method='POST')
             with urllib.request.urlopen(req,timeout=20) as response:
                 body=json.load(response)
             parts=body['candidates'][0]['content']['parts']
-            parsed=json.loads(''.join(part.get('text','') for part in parts))
+            parsed=json.loads(''.join(part.get('text','') for part in parts if not part.get('thought')))
         else:
             req=urllib.request.Request('https://api.groq.com/openai/v1/chat/completions',
                 data=json.dumps(request).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
@@ -563,7 +570,15 @@ def explain_with_llm():
         recommendations=[]; seen=set(); ranks=set()
         for item in items:
             if not isinstance(item,dict): continue
-            fid=item.get('finding_id'); explanation=item.get('explanation','')
+            fid=item.get('finding_id')
+            if not isinstance(fid,str):
+                continue
+            if provider=='gemini':
+                finding=gemini_findings.get(fid)
+                if finding is None:
+                    continue
+                fid=finding['id']
+            explanation=item.get('explanation','')
             priority=item.get('priority')
             if fid not in allowed or fid in seen or not isinstance(explanation,str) or not (5<=len(explanation)<=500):
                 continue
