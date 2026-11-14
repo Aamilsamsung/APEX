@@ -74,3 +74,26 @@ def test_file_only_remediation_is_labeled_registry_only(monkeypatch):
     events=[entry['action'] for entry in core.logs()]
     assert 'remediation.registry_updated' in events
     assert 'remediation.deployment_verified' not in events
+
+
+def test_renewal_requires_policy_finding_and_human_approval():
+    cert=next(c for c in core.inventory() if core.assess(c) and c['source']!='uploaded-public-cert')
+    requested=core.request_certificate_renewal(cert['id'])
+    assert requested['status']=='pending_approval'
+    assert requested['finding_codes']
+    assert not core.verify_revocation(cert['serial'])
+    assert next(i for i in core.incidents() if i['id']==requested['incident_id'])['status']=='pending_approval'
+    result=core.approve_and_remediate(requested['incident_id'],'Approved Operator')
+    assert result['status']=='resolved'
+    assert core.verify_revocation(cert['serial'])
+    replacement=next(c for c in core.inventory() if c['id']==result['new_certificate_id'])
+    assert replacement['hostname']==cert['hostname']
+    assert replacement['serial']!=cert['serial']
+    assert not replacement['revoked']
+    assert not core.assess(replacement)
+
+
+def test_healthy_certificate_cannot_be_needlessly_renewed():
+    cert=next(c for c in core.inventory() if not core.assess(c))
+    with pytest.raises(ValueError,match='no detected policy findings'):
+        core.request_certificate_renewal(cert['id'])
