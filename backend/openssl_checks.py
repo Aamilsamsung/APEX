@@ -31,7 +31,5 @@ def inspect_certificate(certificate_id: str) -> dict:
     core.ensure_ca()
     valid, error = validate_bundle(path.read_bytes(), ca_path.read_bytes())
     chain = {'ok': valid, 'output': error or 'Sandbox issuer path verified'}
-    core.audit('openssl.certificate.inspected',
-               {'certificate_id':certificate_id,'chain_valid':chain['ok']})
     return {'certificate_id':certificate_id,'details':details,
             'sandbox_ca_verification':chain}
