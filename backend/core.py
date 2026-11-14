@@ -294,6 +294,27 @@ def simulate_compromise(cert_id):
         scan()
     return incident_id
 
+def request_certificate_renewal(cert_id):
+    """Queue an approved sandbox replacement without fabricating a compromise."""
+    with LOCK:
+        with connect() as db:
+            row=db.execute('SELECT * FROM certificates WHERE id=? AND active=1',(cert_id,)).fetchone()
+            if not row: raise ValueError('Active certificate not found')
+            if row['source']=='uploaded-public-cert':
+                raise ValueError('Imported public certificates are analysis-only; renewal requires a managed sandbox certificate')
+            cert=describe(row)
+            problems=assess(cert)
+            if not problems:
+                raise ValueError('Certificate has no detected policy findings requiring replacement')
+            pending=db.execute('SELECT id FROM incidents WHERE certificate_id=? AND status IN ("pending_approval","approved","executing")',(cert_id,)).fetchone()
+            if pending: raise ValueError('A remediation request is already open for this certificate')
+            incident_id=uuid.uuid4().hex[:12]
+            db.execute('INSERT INTO incidents(id,certificate_id,type,status,created_at) VALUES(?,?,?,?,?)',
+                       (incident_id,cert_id,'CERTIFICATE_RENEWAL','pending_approval',timestamp()))
+        audit('renewal.requested',{'incident_id':incident_id,'certificate_id':cert_id,
+              'hostname':cert['hostname'],'finding_codes':[p['code'] for p in problems]})
+    return {'incident_id':incident_id,'status':'pending_approval','finding_codes':[p['code'] for p in problems]}
+
 def incidents():
     with connect() as c: return [dict(r) for r in c.execute('SELECT * FROM incidents ORDER BY created_at DESC')]
 
@@ -389,7 +410,8 @@ def remediation_steps(incident_id):
         data=json.loads(entry['details'])
         if data.get('incident_id')!=incident_id: continue
         action=entry['action']; at=entry['timestamp']
-        if action=='incident.simulated': step('Compromise detected (simulation)','A controlled incident flag was set. No real private-key theft was detected.',at)
+        if action=='renewal.requested': step('Certificate renewal requested','Detected policy findings: '+', '.join(data.get('finding_codes',[]))+'. Human approval is required.',at)
+        elif action=='incident.simulated': step('Compromise detected (simulation)','A controlled incident flag was set. No real private-key theft was detected.',at)
         elif action=='remediation.approved': step('Human approval recorded',f"Operator {data.get('approver','unknown')} authorized the sandbox recovery.",at)
         elif action=='remediation.rejected': step('Remediation rejected','No certificate rotation was authorized.',at)
         elif action=='remediation.completed':
