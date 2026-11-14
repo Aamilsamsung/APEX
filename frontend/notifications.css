@@ -1,5 +1,97 @@
-#apex-alert-root{position:relative;display:inline-flex;align-items:center}.apex-alert-bell{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:38px;border:1px solid #35445b;border-radius:10px;background:#19283b;color:#e8eff8;cursor:pointer;font-size:18px}.apex-alert-count{position:absolute;top:-7px;right:-7px;border-radius:12px;background:#f07171;color:#141c27;padding:2px 6px;font-size:11px;font-weight:800}.apex-alert-panel{position:absolute;top:45px;right:0;z-index:200;width:min(350px,90vw);max-height:350px;overflow:auto;background:#142238;border:1px solid #40526b;border-radius:14px;box-shadow:0 20px 45px #0008;padding:12px;color:#f2f5fa}.apex-alert-item{padding:11px 5px;border-bottom:1px solid #34435b}.apex-alert-item p,.apex-alert-empty{font-size:12px;color:#b5c2d4;margin:5px 0}.apex-alert-item button,.apex-alert-actions button{background:#c6e7ef;border:0;color:#10212d;border-radius:7px;padding:8px 12px;font-weight:700;cursor:pointer}.apex-alert-toast{position:fixed;z-index:500;right:22px;bottom:22px;width:min(380px,calc(100vw - 32px));background:#142238;border:1px solid #60758e;border-left:4px solid #e97e7e;border-radius:14px;padding:19px 20px;color:#f1f5f9;box-shadow:0 18px 60px #0009}.apex-alert-toast h3{font-size:19px;margin:8px 0}.apex-alert-toast p{color:#c4d1e0;font-size:13px;margin-bottom:14px}.apex-alert-eyebrow{font-size:10px;letter-spacing:.12em;color:#eeb3b3;font-weight:800}.apex-alert-close{position:absolute;right:12px;top:8px;background:transparent;border:0;color:#e9f1f7;font-size:23px;cursor:pointer}[hidden]{display:none!important}@media(max-width:650px){.apex-alert-toast{right:16px;bottom:16px}.apex-alert-panel{right:-20px}}
+#apex-alert-root {
+  display: inline-flex;
+  align-items: center;
+}
 
-/* Keep incident toast fully inside viewport despite inherited dashboard positioning rules. */
-#apex-alert-toast.apex-alert-toast{position:fixed!important;top:auto!important;bottom:max(20px,env(safe-area-inset-bottom))!important;right:20px!important;left:auto!important;transform:none!important;max-height:min(75dvh,480px)!important;overflow-y:auto!important;box-sizing:border-box!important;z-index:10000!important;}
-@media(max-width:650px){#apex-alert-toast.apex-alert-toast{right:12px!important;bottom:12px!important;width:calc(100vw - 24px)!important;}}
+.apex-alert-bell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-width: 38px;
+  height: 38px;
+  border: 1px solid #40526b;
+  border-radius: 8px;
+  background: #19283b;
+  color: #e8eff8;
+  cursor: pointer;
+}
+
+.apex-alert-count {
+  position: absolute;
+  inset: -7px -7px auto auto;
+  border-radius: 12px;
+  background: #ff9d9d;
+  color: #141c27;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.apex-alert-panel,
+.apex-alert-toast {
+  z-index: 10000;
+  width: min(22rem, calc(100vw - 24px));
+  box-sizing: border-box;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  background: #142238;
+  border: 1px solid #60758e;
+  border-radius: 12px;
+  padding: 16px;
+  color: #f2f5fa;
+  box-shadow: 0 16px 40px #0008;
+}
+
+.apex-alert-panel {
+  max-height: min(24rem, var(--radix-popover-content-available-height, 65dvh));
+}
+
+.apex-alert-toast {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-height: 75dvh;
+  border-left: 4px solid #e97e7e;
+}
+
+.apex-alert-toast h2,
+.apex-alert-panel h2 {
+  margin: 0 28px 8px 0;
+  font-size: 16px;
+}
+
+.apex-alert-item {
+  padding-block: 10px;
+  border-top: 1px solid #34435b;
+}
+
+.apex-alert-panel p,
+.apex-alert-toast p {
+  color: #c4d1e0;
+  margin: 5px 0 12px;
+  font-size: 13px;
+}
+
+.apex-alert-item button,
+.apex-alert-toast button {
+  background: #c6e7ef;
+  border: 0;
+  color: #10212d;
+  border-radius: 7px;
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.apex-alert-toast .apex-alert-close {
+  position: absolute;
+  right: 6px;
+  top: 4px;
+  background: transparent;
+  color: #f2f5fa;
+  font-size: 22px;
+}
+
+.incident-card {
+  scroll-margin-top: 72px;
+}
