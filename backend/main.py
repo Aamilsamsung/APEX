@@ -71,6 +71,15 @@ def import_certificate(body: CertificateImport,request:Request):
     except ValueError as exc:
         raise HTTPException(400,str(exc))
 
+class RenewalRequest(BaseModel):
+    certificate_id:str
+
+@app.post('/api/certificates/renewal-request')
+def request_renewal(body:RenewalRequest,request:Request):
+    require_operator(request)
+    try: return core.request_certificate_renewal(body.certificate_id)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+
 class Compromise(BaseModel):
     certificate_id:str
 @app.post('/api/simulate-compromise')
