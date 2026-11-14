@@ -1,11 +1,14 @@
 from __future__ import annotations
-import os, ssl, threading, time, secrets
+import os, re, ssl, threading, time, secrets
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from . import core, orchestration, openssl_checks, standards
+
+def token_matches(provided: str, expected: str) -> bool:
+    return secrets.compare_digest(provided.encode(), expected.encode())
 
 def require_operator(request: Request):
     expected=os.environ.get('AEGIS_OPERATOR_TOKEN','')
@@ -14,7 +17,7 @@ def require_operator(request: Request):
             raise HTTPException(503,'Operator token not configured on server')
         return
     provided=request.headers.get('X-Aegis-Operator-Token','')
-    if not secrets.compare_digest(provided,expected):
+    if not token_matches(provided,expected):
         raise HTTPException(401,'Operator token required')
 
 app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI sandbox demonstration')
@@ -190,7 +193,7 @@ def integrations():
 def worker_ping(request:Request):
     token=os.environ.get('AEGIS_WORKER_TOKEN','')
     provided=request.headers.get('X-Aegis-Worker-Token','')
-    if not token or not secrets.compare_digest(provided,token):
+    if not token or not token_matches(provided,token):
         raise HTTPException(401,'Worker token required')
     return {'ok':True,'mode':'connectivity-only','message':'Remote worker authenticated; job execution not enabled'}
 
@@ -198,7 +201,7 @@ def worker_ping(request:Request):
 # Demo queue uses the existing SQLite DB; Render free restarts can erase it.
 def require_worker(request:Request):
     expected=os.environ.get('AEGIS_WORKER_TOKEN','')
-    if not expected or not secrets.compare_digest(request.headers.get('X-Aegis-Worker-Token',''),expected):
+    if not expected or not token_matches(request.headers.get('X-Aegis-Worker-Token',''),expected):
         raise HTTPException(401,'Worker token required')
 
 def init_worker_jobs():
@@ -323,9 +326,10 @@ def approve_local_acme(incident_id:str,body:AcmeRecoveryApproval,request:Request
         with core.connect() as db:
             incident=db.execute('SELECT * FROM incidents WHERE id=? AND status="pending_approval"',(incident_id,)).fetchone()
             if not incident: raise HTTPException(409,'Incident must be pending approval')
-            cert=db.execute('SELECT hostname FROM certificates WHERE id=?',(incident['certificate_id'],)).fetchone()
-            if not cert or cert['hostname']!=body.hostname:
-                raise HTTPException(400,'Incident certificate hostname does not match local ACME target')
+            cert=db.execute('SELECT hostname,source,key_path FROM certificates WHERE id=? AND active=1',
+                            (incident['certificate_id'],)).fetchone()
+            if not cert or cert['hostname']!=body.hostname or cert['source']=='uploaded-public-cert' or not cert['key_path']:
+                raise HTTPException(400,'Incident must target an active, managed local ACME demo certificate')
             job_id=secrets.token_hex(12)
             db.execute('UPDATE incidents SET status="approved",approved_at=? WHERE id=?',(core.timestamp(),incident_id))
             db.execute('INSERT INTO worker_jobs(id,action,hostname,status,created_at,result) VALUES(?,?,?,?,?,?)',
@@ -412,12 +416,11 @@ class BulkCertificateImport(BaseModel):
 @app.post('/api/certificates/import-bulk')
 def import_certificates_bulk(body:BulkCertificateImport,request:Request):
     require_operator(request)
-    import re
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     if len(body.pem)>131072 or 'PRIVATE KEY' in body.pem.upper():
         raise HTTPException(400,'Public certificates only, maximum 128 KB; no private keys')
-    blocks=re.findall(r'-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----',body.pem)
+    blocks=re.findall(r'-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----',body.pem)
     if not 1<=len(blocks)<=30:
         raise HTTPException(400,'Provide 1 to 30 public PEM certificates')
     results=[]
@@ -446,8 +449,8 @@ class SimulatedMetadataImport(BaseModel):
 
 @app.post('/api/certificates/import-metadata')
 def import_certificate_metadata(body:SimulatedMetadataImport,request:Request):
-    # Read-only simulated preview: no mutation of certificate inventory or incident actions.
-    import json, re
+    # Read-only simulated preview: no shared state is modified.
+    import json
     from datetime import date, datetime
     if len(body.text)>131072: raise HTTPException(400,'Maximum file size is 128 KB')
     if 'PRIVATE KEY' in body.text.upper(): raise HTTPException(400,'Never upload private keys')
@@ -496,6 +499,5 @@ def import_certificate_metadata(body:SimulatedMetadataImport,request:Request):
         results.append({'index':i,'ok':True,'hostname':hostname,'issuer':str(entry.get('issuer',''))[:150],
                         'days_remaining':days_left,'risks':risks,'source':'user-declared-unverified-metadata',
                         'verified':False})
-    core.audit('certificate.metadata_import_preview',{'count':len(data),'analyzed':sum(x['ok'] for x in results),'note':'Unverified user-declared metadata; not added to verified inventory'})
     return {'count':len(data),'analyzed':sum(x['ok'] for x in results),'results':results,
             'warning':'Simulated metadata only. No certificate cryptographic validation or live TLS check performed.'}
