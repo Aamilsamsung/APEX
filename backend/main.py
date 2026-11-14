@@ -402,3 +402,40 @@ def local_tls_endpoints():
             (['EXPIRED'] if row['days_remaining']<0 else []))
     return {'source':'authenticated Ubuntu worker observations; not direct Render TLS probes',
             'endpoints':rows}
+
+# Bulk public-certificate import. Each PEM block is treated as a separate leaf,
+# not silently interpreted as a trusted certificate chain.
+class BulkCertificateImport(BaseModel):
+    pem: str
+    expected_hostname: str = ''
+
+@app.post('/api/certificates/import-bulk')
+def import_certificates_bulk(body:BulkCertificateImport,request:Request):
+    require_operator(request)
+    import re
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    if len(body.pem)>131072 or 'PRIVATE KEY' in body.pem.upper():
+        raise HTTPException(400,'Public certificates only, maximum 128 KB; no private keys')
+    blocks=re.findall(r'-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----',body.pem)
+    if not 1<=len(blocks)<=30:
+        raise HTTPException(400,'Provide 1 to 30 public PEM certificates')
+    results=[]
+    for index,block in enumerate(blocks,1):
+        try:
+            cert=x509.load_pem_x509_certificate(block.encode('ascii'))
+            try:
+                names=cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+            except x509.ExtensionNotFound:
+                names=[]
+            if not names:
+                names=[attr.value for attr in cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)]
+            hostname=(body.expected_hostname.strip() or next((name for name in names if not name.startswith('*.')),'')).lower()
+            if not hostname:
+                raise ValueError('No DNS hostname in certificate; enter an expected hostname')
+            result=core.import_public_certificate(block,hostname)
+            results.append({'index':index,'ok':True,**result})
+        except (ValueError,UnicodeError) as exc:
+            results.append({'index':index,'ok':False,'error':str(exc)[:200]})
+    core.audit('certificate.bulk_import',{'count':len(blocks),'imported':sum(x['ok'] for x in results)})
+    return {'count':len(blocks),'imported':sum(x['ok'] for x in results),'results':results}
