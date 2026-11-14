@@ -1,0 +1,59 @@
+/* Scope the Spectrum components to the operations console. */
+.shell .sidebar,
+.shell .topbar {
+  background: #111814 !important;
+  border-color: #2a3931 !important;
+}
+.shell .sidebar nav {
+  display: grid;
+  gap: 4px;
+}
+.shell .sidebar .nav {
+  color: #b5c3ba !important;
+  border-radius: 6px !important;
+  text-align: left;
+}
+.shell .sidebar .nav.active {
+  background: #213a2e !important;
+  color: #adf0cb !important;
+}
+.shell .content { max-width: 1500px; }
+.console-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.console-metric {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #334439;
+  border-radius: 9px;
+  background: #151e19;
+  color: #e5efe9;
+}
+.console-metric [class*="tracking-tight"] { color: #bbcec2; font-weight: 600; }
+.console-metric strong { display: inline-block; font-size: 28px; padding-top: 6px; }
+.console-metric p { color: #aebfb4; margin: 4px 0; }
+.console-metric .health-gauge { width: 72px !important; height: 72px !important; }
+.console-metric .health-gauge strong { font-size: 19px; padding: 0; }
+.console-metric #critical { color: #ffadad; }
+.console-overview-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.console-sandbox {
+  border: 1px solid #446555;
+  border-radius: 20px;
+  padding: 3px 10px;
+  color: #b9e8ce;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .console-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .shell .sidebar nav { display: flex; flex-wrap: wrap; }
+}

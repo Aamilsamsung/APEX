@@ -2,8 +2,9 @@
   "name": "apex-pki-ui",
   "version": "1.0.0",
   "scripts": {
-    "build": "esbuild src/certificate-map.jsx --bundle --minify --legal-comments=linked --outfile=certificate-map.js && esbuild src/notifications.tsx --jsx=automatic --bundle --minify --legal-comments=linked --outfile=notifications.js",
-    "typecheck": "tsc --noEmit --strict --jsx react-jsx --module preserve --target es2022 --skipLibCheck src/notifications.tsx"
+    "build": "esbuild src/certificate-map.jsx --bundle --minify --legal-comments=linked --outfile=certificate-map.js && esbuild src/notifications.tsx --jsx=automatic --bundle --minify --legal-comments=linked --outfile=notifications.js && npm run build:console",
+    "typecheck": "tsc --noEmit --strict --jsx react-jsx --module preserve --target es2022 --skipLibCheck src/notifications.tsx src/console-layout.tsx",
+    "build:console": "esbuild src/build-console.ts --jsx=automatic --platform=node --bundle --outfile=node_modules/.apex-build-console.cjs && node node_modules/.apex-build-console.cjs"
   },
   "type": "commonjs",
   "dependencies": {
