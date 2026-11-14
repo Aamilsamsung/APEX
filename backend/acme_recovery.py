@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import socket
 import subprocess
@@ -10,6 +11,7 @@ import time
 from pathlib import Path
 
 from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .local_worker import DEFAULT_DIRECTORY, verify_served_certificate
@@ -17,7 +19,8 @@ from .local_worker import DEFAULT_DIRECTORY, verify_served_certificate
 HOST = "service-01.demo.local"
 
 
-def run(root: Path, approve_revocation: bool, config_dir: Path, http_port: int) -> int:
+def run(root: Path, approve_revocation: bool, config_dir: Path, http_port: int,
+        evidence: dict | None = None) -> int:
     live = config_dir / "live" / HOST
     certbot = ["certbot", "--config-dir", str(config_dir)]
     if config_dir != Path("/etc/letsencrypt"):
@@ -27,7 +30,7 @@ def run(root: Path, approve_revocation: bool, config_dir: Path, http_port: int) 
     with socket.socket() as sock:
         sock.settimeout(2)
         if sock.connect_ex(("127.0.0.1", 8443)) == 0:
-            print("Port 8443 is occupied. Stop the previous sandbox TLS demo first.", file=sys.stderr)
+            print("Port 8443 is occupied. Stop the previous managed sandbox TLS demo first.", file=sys.stderr)
             return 1
     try:
         # Use the existing archive paths so Certbot's rotation cannot change
@@ -71,6 +74,10 @@ def run(root: Path, approve_revocation: bool, config_dir: Path, http_port: int) 
         if not verified:
             raise ValueError("Replacement did not pass the trusted loopback TLS handshake")
         print(f"Verified replacement serial {after.serial_number:X} on loopback TLS, PID {server.pid}.")
+        if evidence is not None:
+            evidence.update(old_serial=format(before.serial_number,'x'),new_serial=format(after.serial_number,'x'),
+                            fingerprint=after.fingerprint(hashes.SHA256()).hex(),endpoint='127.0.0.1:8443',
+                            key_rotated=True,tls_verified=True,ca_revocation_confirmed=False)
         if not approve_revocation:
             print("Old certificate remains active at the CA. Revocation requires explicit approval.")
             return 0
@@ -81,6 +88,8 @@ def run(root: Path, approve_revocation: bool, config_dir: Path, http_port: int) 
                         "--reason", "keycompromise", "--no-delete-after-revoke",
                         "--non-interactive"], check=True, timeout=60, env=env)
         print(f"Private ACME CA accepted revocation of serial {before.serial_number:X}.")
+        if evidence is not None:
+            evidence['ca_revocation_confirmed']=True
         return 0
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         print(f"Local recovery stopped ({type(exc).__name__}). Check local CA and Certbot logs.",
@@ -97,10 +106,16 @@ def main() -> int:
     parser.add_argument("--certbot-config", type=Path, default=Path("/etc/letsencrypt"))
     parser.add_argument("--http-port", type=int, default=80,
                         help="Loopback HTTP-01 port configured on the sandbox CA")
+    parser.add_argument("--json-evidence", action="store_true",
+                        help="Print a final JSON evidence line for an authenticated local worker")
     args = parser.parse_args()
     if not 1 <= args.http_port <= 65535:
         parser.error("HTTP port must be between 1 and 65535")
-    return run(args.ca_root.resolve(), args.approve_revocation, args.certbot_config.resolve(), args.http_port)
+    evidence = {} if args.json_evidence else None
+    code = run(args.ca_root.resolve(), args.approve_revocation, args.certbot_config.resolve(), args.http_port, evidence)
+    if evidence is not None:
+        print(json.dumps(evidence))
+    return code
 
 
 if __name__ == "__main__":
