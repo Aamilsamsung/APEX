@@ -183,7 +183,9 @@ def enriched_findings():
 
 @app.get('/api/integrations')
 def integrations():
-    return {'acme':{'configured':bool(os.environ.get('AEGIS_ACME_DIRECTORY_URL')), 'mode':'operator-run certbot HTTP-01', 'status':'private ACME directory configured; issuance not yet verified' if os.environ.get('AEGIS_ACME_DIRECTORY_URL') else 'requires external step-ca ACME server and HTTP-01 challenge setup'},
+    return {'acme':{'configured':bool(os.environ.get('AEGIS_ACME_DIRECTORY_URL')),
+                    'mode':'approved private ACME through an opted-in local worker',
+                    'status':'Cloud configuration does not establish local worker or private CA availability.'},
             'notifications':{'configured':bool(os.environ.get('AEGIS_NOTIFY_WEBHOOK_URL')),
                              'channel':'https_webhook'},
             'tls_demo':{'enabled':os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1',
@@ -240,9 +242,28 @@ def worker_claim(job_id:str,request:Request):
     core.audit('worker.job.claimed',{'job_id':job_id})
     return {'id':job_id,'status':'running'}
 
+class AcmeJobEvidence(BaseModel):
+    old_serial:str
+    new_serial:str
+    fingerprint:str
+    endpoint:str
+    key_rotated:bool
+    tls_verified:bool
+    ca_revocation_confirmed:bool
+
+    def complete(self):
+        serials=(self.old_serial,self.new_serial)
+        return (all(re.fullmatch(r'[0-9a-fA-F]{1,40}',serial) for serial in serials)
+                and int(self.old_serial,16)!=int(self.new_serial,16)
+                and bool(re.fullmatch(r'[0-9a-fA-F]{64}',self.fingerprint))
+                and self.endpoint=='127.0.0.1:8443'
+                and self.key_rotated and self.tls_verified and self.ca_revocation_confirmed)
+
+
 class WorkerResult(BaseModel):
     ok:bool
     details:str
+    acme_evidence:AcmeJobEvidence|None=None
 
 @app.post('/api/worker/jobs/{job_id}/complete')
 def worker_complete(job_id:str,body:WorkerResult,request:Request):
@@ -250,26 +271,32 @@ def worker_complete(job_id:str,body:WorkerResult,request:Request):
     init_worker_jobs()
     if len(body.details)>2000: raise HTTPException(400,'Result too long')
     with core.connect() as db:
+        job=db.execute("SELECT action,result,hostname FROM worker_jobs WHERE id=? AND status='running'",(job_id,)).fetchone()
+        if not job: raise HTTPException(409,'Job not running')
+        action=job['action']
+        full_recovery=action=='acme_full_recovery'
+        if full_recovery and body.ok and (not body.acme_evidence or not body.acme_evidence.complete()):
+            raise HTTPException(400,'Full ACME success requires valid rotation, trusted TLS, and CA revocation evidence')
+        if body.acme_evidence and (not full_recovery or not body.ok):
+            raise HTTPException(400,'This job cannot record full ACME success evidence')
+        evidence=body.acme_evidence.model_dump() if body.acme_evidence else None
+        details=('Worker verified private ACME issuance, trusted loopback TLS, and CA revocation'
+                 if evidence else 'Worker reported that full private CA recovery did not verify'
+                 if full_recovery else body.details)
         cur=db.execute("UPDATE worker_jobs SET status=?,result=? WHERE id=? AND status='running'",
-                       ('completed' if body.ok else 'failed',body.details,job_id))
+                       ('completed' if body.ok else 'failed',details,job_id))
         if not cur.rowcount: raise HTTPException(409,'Job not running')
-    incident_id=None
-    with core.connect() as db:
-        job=db.execute('SELECT action,result FROM worker_jobs WHERE id=?',(job_id,)).fetchone()
-        if job and job['action']=='acme_recovery':
-            # The job's original result field holds the incident id until completion;
-            # completion overwrites it, so lookup via the approval audit event.
-            import json as _json
-            for entry in db.execute("SELECT details FROM audit WHERE action='remediation.local_acme_approved' ORDER BY id DESC"):
-                event=_json.loads(entry['details'])
-                if event.get('job_id')==job_id:
-                    incident_id=event['incident_id']
-                    db.execute('UPDATE incidents SET status=?,error=? WHERE id=? AND status="approved"',
-                               ('acme_issued_unverified_deployment' if body.ok else 'failed',
-                                'Local ACME issuance verified; CA revocation and deployment not performed' if body.ok else body.details,
-                                incident_id))
-                    break
-    core.audit('worker.job.completed',{'job_id':job_id,'action':job['action'] if job else None,'incident_id':incident_id,'ok':body.ok,'details':body.details})
+        incident_id=job['result'] if action in ('acme_recovery','acme_full_recovery') else None
+        if incident_id:
+            status='acme_recovery_worker_verified' if evidence else 'acme_issued_unverified_deployment' if body.ok else 'failed'
+            error=None if evidence else 'Local ACME issuance verified; CA revocation and deployment not performed' if body.ok else details
+            db.execute('UPDATE incidents SET status=?,error=?,resolved_at=? WHERE id=? AND status="approved"',
+                       (status,error,core.timestamp() if evidence else None,incident_id))
+    core.audit('worker.job.completed',{'job_id':job_id,'action':action,'incident_id':incident_id,
+                                       'ok':body.ok,'details':details,'acme_evidence':evidence})
+    if evidence and incident_id:
+        from .notifications import notify
+        notify(incident_id,job['hostname'],'acme_recovery_worker_verified',{'status':'verified'})
     return {'id':job_id,'status':'completed' if body.ok else 'failed'}
 
 
@@ -316,6 +343,7 @@ def local_recovery_evidence():
 class AcmeRecoveryApproval(BaseModel):
     approver:str
     hostname:str='service-01.demo.local'
+    full_recovery:bool=False
 
 @app.post('/api/incidents/{incident_id}/approve-local-acme')
 def approve_local_acme(incident_id:str,body:AcmeRecoveryApproval,request:Request):
@@ -328,16 +356,20 @@ def approve_local_acme(incident_id:str,body:AcmeRecoveryApproval,request:Request
         with core.connect() as db:
             incident=db.execute('SELECT * FROM incidents WHERE id=? AND status="pending_approval"',(incident_id,)).fetchone()
             if not incident: raise HTTPException(409,'Incident must be pending approval')
+            if body.full_recovery and incident['type']!='REAL_ACME_RENEWAL':
+                raise HTTPException(400,'Full recovery requires a separate real ACME renewal request')
             cert=db.execute('SELECT hostname,source,key_path FROM certificates WHERE id=? AND active=1',
                             (incident['certificate_id'],)).fetchone()
             if not cert or cert['hostname']!=body.hostname or cert['source']=='uploaded-public-cert' or not cert['key_path']:
                 raise HTTPException(400,'Incident must target an active, managed local ACME demo certificate')
             job_id=secrets.token_hex(12)
+            action='acme_full_recovery' if body.full_recovery else 'acme_recovery'
             db.execute('UPDATE incidents SET status="approved",approved_at=? WHERE id=?',(core.timestamp(),incident_id))
             db.execute('INSERT INTO worker_jobs(id,action,hostname,status,created_at,result) VALUES(?,?,?,?,?,?)',
-                       (job_id,'acme_recovery',body.hostname,'queued',core.timestamp(),incident_id))
-        core.audit('remediation.local_acme_approved',{'incident_id':incident_id,'job_id':job_id,'approver':body.approver,'hostname':body.hostname})
-    return {'job_id':job_id,'incident_id':incident_id,'status':'queued','action':'acme_recovery',
+                       (job_id,action,body.hostname,'queued',core.timestamp(),incident_id))
+        core.audit('remediation.local_acme_approved',{'incident_id':incident_id,'job_id':job_id,'approver':body.approver,
+                   'hostname':body.hostname,'full_recovery':body.full_recovery})
+    return {'job_id':job_id,'incident_id':incident_id,'status':'queued','action':action,
             'note':'Local worker must explicitly enable ACME execution; queued jobs are inert by default'}
 
 
