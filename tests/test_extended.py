@@ -39,13 +39,15 @@ def test_incident_steps_describe_real_sandbox_actions():
     assert result['status']=='resolved'
     titles=[s['title'] for s in result['steps']]
     assert 'Fresh private key generated' in titles
-    # The timeline must report the real webhook outcome, never claim a mock send.
+    # Show the real webhook outcome alongside any clearly labeled simulation.
     assert any(t in titles for t in (
         'Owner notification delivered',
         'Owner notification not configured',
         'Owner notification failed',
     ))
-    assert 'Owner notification simulated' not in titles
+    if 'Owner notification not configured' in titles:
+        assert 'Owner notification simulated' in titles
+        assert 'Owner notification delivered' not in titles
 
 
 def test_required_live_tls_failure_never_marks_incident_resolved(monkeypatch):
@@ -61,7 +63,10 @@ def test_required_live_tls_failure_never_marks_incident_resolved(monkeypatch):
     entry=next(i for i in core.incidents() if i['id']==incident)
     assert entry['status']=='failed'
     assert entry['resolved_at'] is None
+    assert not core.verify_revocation(cert['serial'])
+    assert next(c for c in core.inventory() if c['hostname']==cert['hostname'])['id']==cert['id']
     assert any(e['action']=='remediation.deployment_verification_failed' for e in core.logs())
+    assert any(e['action']=='remediation.rolled_back' for e in core.logs())
 
 
 def test_file_only_remediation_is_labeled_registry_only(monkeypatch):

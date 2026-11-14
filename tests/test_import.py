@@ -1,6 +1,8 @@
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+from pathlib import Path
+
+from fastapi.testclient import TestClient
 from backend import core
+from backend.main import app
 
 def test_public_certificate_import(tmp_path, monkeypatch):
     monkeypatch.setattr(core, 'DATA', tmp_path)
@@ -25,3 +27,25 @@ def test_public_certificate_import(tmp_path, monkeypatch):
         assert False, 'imported certificate cannot be rotated'
     except ValueError:
         pass
+
+
+def test_bulk_public_pem_and_read_only_metadata_preview(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, 'DATA', tmp_path)
+    monkeypatch.setattr(core, 'CERTS', tmp_path / 'certificates')
+    monkeypatch.setattr(core, 'DB', tmp_path / 'aegis.db')
+    monkeypatch.setenv('AEGIS_OPERATOR_TOKEN', 'test-token')
+    core.seed()
+    with core.connect() as db:
+        paths = [row['path'] for row in db.execute('SELECT path FROM certificates LIMIT 2')]
+    pem = ''.join(Path(path).read_text() for path in paths)
+    client = TestClient(app)
+    response = client.post('/api/certificates/import-bulk', json={'pem': pem},
+                           headers={'X-Aegis-Operator-Token':'test-token'})
+    assert response.status_code == 200
+    assert response.json()['imported'] == 2
+    audit_before = core.verify_audit_chain()
+    preview = client.post('/api/certificates/import-metadata', json={'text':'{"hostname":"preview.demo.local"}'})
+    assert preview.status_code == 200
+    assert preview.json()['results'][0]['verified'] is False
+    assert len(core.inventory()) == 32
+    assert core.verify_audit_chain() == audit_before
