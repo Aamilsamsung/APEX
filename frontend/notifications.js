@@ -6,6 +6,8 @@
   const count=document.getElementById('apex-alert-count');
   const panel=document.getElementById('apex-alert-panel');
   const toast=document.getElementById('apex-alert-toast');
+  // Keep the toast outside transformed/clipped header ancestors so fixed positioning uses the viewport.
+  if(toast && toast.parentElement!==document.body)document.body.appendChild(toast);
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let previous=new Map(),initialized=false,muted=new Set(),busy=false;
   function label(i){return i.status==='pending_approval'?'Approval required':['resolved','acme_recovery_worker_verified'].includes(i.status)?'Incident resolved':i.status==='rejected'?'Remediation rejected':i.status==='failed'?'Remediation failed':'Incident updated'}
@@ -45,7 +47,7 @@
     finally{busy=false}
   }
   bell.onclick=()=>{panel.hidden=!panel.hidden;bell.setAttribute('aria-expanded',String(!panel.hidden))};
-  root.addEventListener('click',e=>{
+  document.addEventListener('click',e=>{
     const target=e.target.closest('[data-apex-incident]');
     if(!target)return;
     panel.hidden=true;toast.hidden=true;
