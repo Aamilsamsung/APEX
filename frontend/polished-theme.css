@@ -143,3 +143,47 @@ tr:hover td{background:rgba(105,168,226,.06)!important}
 #health-trend{min-height:130px!important}
 @media(max-width:1050px){.overview-hero{grid-template-columns:minmax(190px,.8fr) minmax(290px,1.3fr)!important}.demo-intro{padding:30px!important}.demo-intro h2{font-size:31px!important}}
 @media(max-width:760px){.overview-hero{grid-template-columns:1fr!important}.posture{border-right:0!important;border-bottom:1px solid #355065!important;padding:25px!important}.health-gauge{width:145px!important;height:145px!important}.demo-intro{padding:28px!important}.stats{grid-template-columns:1fr!important}.metric{min-height:125px!important}.heading:before{top:-18px}.heading{margin-top:25px!important}}
+
+/* Cohesive APEX palette: midnight #0B1220, slate #172337, teal #2DD4BF, ice #E7F0FA, coral #FB7185 */
+:root{--apx-bg:#0b1220;--apx-panel:#172337;--apx-border:#30435b;--apx-blue:#93c5fd;--apx-green:#2dd4bf;--apx-warm:#fbbf77;--aegis-accent:#2dd4bf}
+body,.shell{background:#0b1220!important;color:#e7f0fa!important}
+.main{background:radial-gradient(ellipse 55% 45% at 85% -10%,rgba(45,212,191,.065),transparent),#0b1220!important}
+.sidebar,.topbar{background:#101a2a!important;border-color:#26374b!important}
+.sidebar{background:linear-gradient(180deg,#111d2e,#0d1726)!important}
+.brand-icon{background:#153b42!important;border-color:#2d7775!important;color:#70f0d9!important}
+.brand b,.eyebrow{color:#64e8d1!important}
+.nav{color:#aabbd0!important}
+.nav.active{background:#1a3a43!important;color:#8ff5df!important;border-color:#357b78!important;box-shadow:inset 3px 0 #2dd4bf!important}
+.nav:hover{background:#1a3044!important}
+.breadcrumb strong{color:#f2f7ff!important}
+.heading h1,h1,h2,h3{color:#f1f6ff!important}
+.heading p,.section-title p{color:#a9bbcf!important}
+.heading:before{color:#5edcc9!important}
+.overview-hero{background:radial-gradient(circle at 85% 20%,rgba(45,212,191,.11),transparent 46%),linear-gradient(120deg,#1b3047,#142438 55%,#122031)!important;border-color:#38566b!important}
+.overview-hero:after{border-color:rgba(45,212,191,.22)!important;box-shadow:0 0 0 44px rgba(45,212,191,.027),0 0 0 92px rgba(45,212,191,.013)!important}
+.posture{background:radial-gradient(circle at 50% 50%,rgba(45,212,191,.095),transparent 70%)!important;border-color:#37556a!important}
+.posture .eyebrow{color:#b7cfdd!important}
+#score-status{color:#70e9cf!important}
+.demo-intro .eyebrow{color:#8fc7f5!important}
+.demo-intro p{color:#b5c8d8!important}
+.demo-intro .primary,.primary{background:#2dd4bf!important;border-color:#2dd4bf!important;color:#082b32!important;box-shadow:0 6px 20px rgba(45,212,191,.13)!important}
+.demo-intro .primary:hover,.primary:hover{background:#6aead9!important;border-color:#6aead9!important;box-shadow:0 10px 30px rgba(45,212,191,.2)!important}
+.heading .primary{background:#dbeafe!important;border-color:#dbeafe!important;color:#14243a!important}
+.heading .primary:hover{background:#fff!important}
+.card,.metric{background:linear-gradient(145deg,#19283b,#142133)!important;border-color:#30435b!important}
+.card:hover,.metric:hover{border-color:#4c7484!important}
+.metric:before{background:linear-gradient(90deg,#2dd4bf,transparent)!important}
+.metric:nth-child(2):before{background:linear-gradient(90deg,#fb7185,transparent)!important}
+.metric:nth-child(3):before{background:linear-gradient(90deg,#fbbf77,transparent)!important}
+.metric .card-head{color:#b5c7d9!important}
+.metric p{color:#a9bed1!important}
+.red{color:#fb7185!important}.amber{color:#fbbf77!important}
+.secondary{background:#1d3147!important;border-color:#466078!important;color:#d7eafa!important}
+.secondary:hover{background:#28435c!important}
+.pill{background:#12362f!important;border-color:#2d7165!important;color:#7ff1d6!important}
+th{background:#203149!important;color:#b6cfe2!important}
+td{border-color:#30435b!important}
+tr:hover td{background:rgba(45,212,191,.055)!important}
+input,select,textarea{background:#142438!important;border-color:#3c536b!important;color:#f1f7ff!important}
+a,.textbtn{color:#70e9d3!important}
+.health-gauge{filter:drop-shadow(0 0 22px rgba(45,212,191,.16))!important}
