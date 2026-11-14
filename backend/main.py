@@ -446,7 +446,7 @@ class SimulatedMetadataImport(BaseModel):
 
 @app.post('/api/certificates/import-metadata')
 def import_certificate_metadata(body:SimulatedMetadataImport,request:Request):
-    require_operator(request)
+    # Read-only simulated preview: no mutation of certificate inventory or incident actions.
     import json, re
     from datetime import date, datetime
     if len(body.text)>131072: raise HTTPException(400,'Maximum file size is 128 KB')
