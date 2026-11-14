@@ -4,7 +4,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 async function api(path,options={}){
   const mutation=(options.method||'GET').toUpperCase()!=='GET';
   let token=sessionStorage.getItem('aegis_operator_token')||'';
-  if(mutation&&!token){
+  const publicDemo=path==='certificates/import-metadata';
+  if(mutation&&!publicDemo&&!token){
     token=prompt('Operator access token (provided by the APEX demo owner):')||'';
     if(!token)throw new Error('Operator authorization required');
     sessionStorage.setItem('aegis_operator_token',token);
