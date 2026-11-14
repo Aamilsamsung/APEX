@@ -266,3 +266,20 @@ document.getElementById('certificate-import-form')?.addEventListener('submit',as
 
 // Refresh pending worker approvals without requiring the operator to reload the page.
 setInterval(()=>{if(state.tab==='incidents'&&state.incidents.some(i=>i.type==='REAL_ACME_RENEWAL'&&['approved','executing'].includes(i.status)))refresh();},5000);
+
+document.getElementById('certificate-bulk-form')?.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const file=document.getElementById('bulk-import-file').files[0];
+  const output=document.getElementById('bulk-import-results');
+  if(!file)return;
+  if(file.size>131072){output.textContent='File too large (128 KB maximum).';return;}
+  const button=event.target.querySelector('button[type=submit]');
+  button.disabled=true;output.textContent='Importing public certificates…';
+  try{
+    const pem=await file.text();
+    const result=await api('certificates/import-bulk',{method:'POST',body:JSON.stringify({pem})});
+    output.textContent=result.imported+' of '+result.count+' certificates imported and scanned. '+result.results.filter(r=>!r.ok).map(r=>'#'+r.index+': '+r.error).join('; ');
+    await refresh();
+  }catch(error){output.textContent='Bulk import failed: '+error.message;}
+  finally{button.disabled=false;}
+});
