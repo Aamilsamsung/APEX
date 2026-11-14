@@ -63,3 +63,28 @@ def test_real_acme_request_cannot_run_sandbox_approval_route(client):
     assert client.post(f'/api/incidents/{incident}/approve-local-acme', json={'approver':'Operator'},
                        headers=operator).status_code == 409
     assert not core.verify_revocation(cert['serial'])
+
+
+def test_full_acme_job_requires_all_worker_evidence(client, monkeypatch):
+    monkeypatch.delenv('AEGIS_NOTIFY_WEBHOOK_URL', raising=False)
+    cert = next(c for c in core.inventory() if c['hostname']=='service-01.demo.local')
+    operator = {'X-Aegis-Operator-Token':'test-operator-only'}
+    worker = {'X-Aegis-Worker-Token':'test-worker-only'}
+    incident = client.post('/api/certificates/real-acme-request',
+                           json={'certificate_id':cert['id']},headers=operator).json()['incident_id']
+    approval = client.post(f'/api/incidents/{incident}/approve-local-acme',
+                           json={'approver':'Operator','full_recovery':True},headers=operator)
+    assert approval.json()['action']=='acme_full_recovery'
+    job = approval.json()['job_id']
+    assert client.post(f'/api/worker/jobs/{job}/claim',headers=worker).status_code==200
+    path=f'/api/worker/jobs/{job}/complete'
+    assert client.post(path,json={'ok':True,'details':'Missing evidence'},headers=worker).status_code==400
+    evidence={'old_serial':'1','new_serial':'2','fingerprint':'b'*64,'endpoint':'127.0.0.1:8443',
+              'key_rotated':True,'tls_verified':True,'ca_revocation_confirmed':True}
+    payload={'ok':True,'details':'Synthetic worker evidence','acme_evidence':evidence}
+    assert client.post(path,json=payload,headers=worker).status_code==200
+    steps=client.get(f'/api/incidents/{incident}/steps').json()
+    assert steps['status']=='acme_recovery_worker_verified'
+    assert any('Private ACME recovery verified by the worker'==s['title'] for s in steps['steps'])
+    assert any('Owner notification simulated'==s['title'] for s in steps['steps'])
+    assert not core.verify_revocation(cert['serial'])
