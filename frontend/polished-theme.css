@@ -91,3 +91,55 @@ input,select,textarea{border-radius:8px!important;min-height:38px}
 @media(max-width:1000px){.sidebar{width:210px!important}.content{padding:25px!important}.topbar{padding:0 25px!important}}
 @media(max-width:760px){.sidebar{width:auto!important;padding:12px!important}.topbar{height:auto!important;min-height:62px}.content{padding:17px!important}.heading{align-items:flex-start}.heading h1{font-size:29px!important}.overview-hero{border-radius:14px!important}.card{border-radius:12px!important}.metric{min-height:125px!important}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.panel.active,.panel.active .card,.panel.active .metric,.overview-hero:after,.status-dot{animation:none!important}.primary:hover,.card:hover{transform:none!important}.health-fill{transition:none!important}}
+
+/* APEX / command-center redesign v3 — deliberate layout, no fake metrics */
+:root{--apx-bg:#080d14;--apx-panel:#111a25;--apx-border:#243244;--apx-blue:#78a9ff;--apx-green:#63e4c0}
+body,.shell{background:#080d14!important;color:#eaf0f8!important}
+.main{background:radial-gradient(ellipse 60% 42% at 84% 5%,rgba(45,90,156,.15),transparent),#080d14!important}
+.sidebar{background:#0c131d!important;border-color:#1e2d3d!important}
+.brand-icon{background:#12293b!important;border-color:#28587b!important;color:#83d8ff!important}
+.brand b{color:#6de2c0!important}
+.nav.active{background:#142b38!important;border-color:#2e6072!important;color:#b6f4eb!important;box-shadow:inset 3px 0 #60e4c4!important}
+.nav:hover{background:#162737!important}
+.topbar{background:#0c131d!important;border-color:#243244!important}
+.content{max-width:1720px!important}
+.heading{margin:6px 0 31px!important}
+.heading:before{content:"SECURITY OPERATIONS  /  COMMAND CENTER";display:block;position:absolute;top:-22px;left:0;color:#72d9c0;font:600 9px 'Martian Mono',monospace;letter-spacing:.17em}
+.heading{position:relative;margin-top:30px!important}
+.heading h1{font-size:clamp(32px,3.5vw,51px)!important}
+.heading .primary{background:#e4f2ff!important;border-color:#e4f2ff!important;color:#0b1827!important;box-shadow:none!important}
+.heading .primary:hover{background:#c5e3ff!important}
+.overview-hero{display:grid!important;grid-template-columns:minmax(240px,.78fr) minmax(340px,1.55fr)!important;min-height:355px!important;gap:0!important;border:1px solid #34566b!important;background:linear-gradient(125deg,#132739 0%,#101e30 52%,#0d1725 100%)!important;border-radius:20px!important}
+.overview-hero:before{background-image:linear-gradient(rgba(138,191,239,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(138,191,239,.04) 1px,transparent 1px)!important;background-size:28px 28px}
+.overview-hero:after{width:410px!important;height:410px!important;right:-130px!important;top:-150px!important;border-color:rgba(128,190,236,.2)!important;box-shadow:0 0 0 44px rgba(108,176,230,.035),0 0 0 92px rgba(108,176,230,.02)!important}
+.posture{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:12px!important;padding:36px!important;border-right:1px solid #355065!important;text-align:center!important;background:radial-gradient(circle at 50% 45%,rgba(105,207,184,.1),transparent 65%)}
+.posture .eyebrow{color:#b1cde0!important;align-self:center!important}
+.health-gauge{width:178px!important;height:178px!important;max-width:100%;filter:drop-shadow(0 0 30px rgba(94,230,187,.16))}
+.health-value strong{font-size:48px!important;letter-spacing:-.075em}
+#score-status{color:#8ae5c6!important;font-weight:700!important;font-size:13px!important}
+.demo-intro{padding:clamp(35px,5vw,76px)!important;display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:flex-start!important}
+.demo-intro .eyebrow{color:#8bbdff!important}
+.demo-intro h2{font-size:clamp(30px,3.3vw,49px)!important;max-width:620px!important;line-height:1.08!important;letter-spacing:-.055em!important;margin:10px 0 17px!important}
+.demo-intro p{font-size:14px!important;color:#b1c1d1!important;max-width:500px!important}
+.demo-intro .primary{margin-top:26px!important;padding:14px 22px!important;background:#6fe0bf!important;border-color:#6fe0bf!important;color:#092a25!important;font-size:13px!important}
+.stats{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:16px!important;margin-top:17px!important}
+.metric{background:linear-gradient(150deg,#152230,#101922)!important;border:1px solid #2b3e50!important;border-radius:16px!important;padding:24px 26px!important;min-height:165px!important}
+.metric:before{width:80px!important;background:linear-gradient(90deg,#6bdcc2,transparent)!important}
+.metric:nth-child(2):before{background:linear-gradient(90deg,#fa8f96,transparent)!important}
+.metric:nth-child(3):before{background:linear-gradient(90deg,#edc18d,transparent)!important}
+.metric .card-head{color:#a6b9c9!important;font-size:11px!important;letter-spacing:.03em!important}
+.metric strong{font-size:48px!important;margin:15px 0 3px!important}
+.metric p{color:#a0b4c5!important}
+.card{background:#101a25!important;border:1px solid #253648!important;border-radius:16px!important}
+.card:hover{border-color:#46677f!important}
+.section-title h2{color:#ecf3fb!important}
+.section-title p{color:#9cb0c4!important}
+th{background:#152333!important;color:#b1c7d8!important}
+td{border-color:#26394a!important}
+tr:hover td{background:rgba(105,168,226,.06)!important}
+.primary{background:#73dcc0!important;border-color:#73dcc0!important;color:#0b2b27!important}
+.secondary{background:#172638!important;border-color:#38526c!important;color:#d3e7fa!important}
+.pill{background:#102c28!important;border-color:#285d4e!important;color:#8ee5c9!important}
+#health-trend{min-height:130px!important}
+@media(max-width:1050px){.overview-hero{grid-template-columns:minmax(190px,.8fr) minmax(290px,1.3fr)!important}.demo-intro{padding:30px!important}.demo-intro h2{font-size:31px!important}}
+@media(max-width:760px){.overview-hero{grid-template-columns:1fr!important}.posture{border-right:0!important;border-bottom:1px solid #355065!important;padding:25px!important}.health-gauge{width:145px!important;height:145px!important}.demo-intro{padding:28px!important}.stats{grid-template-columns:1fr!important}.metric{min-height:125px!important}.heading:before{top:-18px}.heading{margin-top:25px!important}}
