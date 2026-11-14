@@ -212,3 +212,31 @@ offline. Check the actual local CA revocation record before attesting in
 the dashboard. The separate cloud-triggered ACME worker still supports
 issuance only. Local end-to-end CA acceptance and notifications require
 verification on the target sandbox.
+
+## Full recovery through the local ACME worker
+
+The **Request real ACME renewal** action opens an incident for review.
+**Approve private CA recovery** requires operator authorization and confirmation
+before queuing a full recovery on the worker. A rejection leaves the private CA
+untouched. The worker runs no CA operation unless its local operator enables
+the operation with both flags below. Use a disposable private CA bound to
+loopback, an existing Certbot lineage for `service-01.demo.local`, trusted CA
+root, and working HTTP-01 routing. Keep the separate worker token in the worker
+environment and out of the shell command line.
+
+```bash
+python -m backend.local_worker --run --enable-acme \
+  --acme-recovery-ca-root /path/to/sandbox-root.pem \
+  --certbot-config /path/to/disposable-certbot-config \
+  --http-port 15002
+```
+
+Use the challenge port configured on the private CA. Run the worker with a
+scoped local account that can write the disposable Certbot lineage. The recovery
+helper requires loopback port 8443 to be free before starting. It verifies the
+new key and trusted TLS fingerprint before revoking the previous serial, then
+reports evidence to the dashboard. The dashboard labels the evidence as
+worker-verified. The Render service does not have direct access to that
+private CA or TLS listener. If a webhook is absent, it records a simulated
+notification with the outcome. The old issuance-only API remains available to
+existing local operators, and has a separate outcome.
