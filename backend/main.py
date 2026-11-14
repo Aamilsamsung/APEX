@@ -333,3 +333,72 @@ def approve_local_acme(incident_id:str,body:AcmeRecoveryApproval,request:Request
         core.audit('remediation.local_acme_approved',{'incident_id':incident_id,'job_id':job_id,'approver':body.approver,'hostname':body.hostname})
     return {'job_id':job_id,'incident_id':incident_id,'status':'queued','action':'acme_recovery',
             'note':'Local worker must explicitly enable ACME execution; queued jobs are inert by default'}
+
+
+# Authenticated local TLS endpoint observations. No private keys or arbitrary targets
+# are accepted; the worker scans a fixed loopback-only allowlist.
+class LocalTLSObservation(BaseModel):
+    port: int
+    expected_hostname: str
+    reachable: bool
+    subject: str = ''
+    serial: str = ''
+    key_bits: int = 0
+    days_remaining: int = 0
+    hostname_matches: bool = False
+    error: str = ''
+
+class LocalTLSReport(BaseModel):
+    observations: list[LocalTLSObservation]
+
+_ALLOWED_LOCAL_ENDPOINTS = {8443:'service-01.demo.local',8445:'weak.demo.local',8446:'service-01.demo.local'}
+
+def init_local_tls_reports():
+    with core.connect() as db:
+        db.execute('''CREATE TABLE IF NOT EXISTS local_tls_reports (
+            port INTEGER PRIMARY KEY, expected_hostname TEXT NOT NULL,
+            observed_at TEXT NOT NULL, reachable INTEGER NOT NULL,
+            subject TEXT NOT NULL, serial TEXT NOT NULL, key_bits INTEGER NOT NULL,
+            days_remaining INTEGER NOT NULL, hostname_matches INTEGER NOT NULL,
+            error TEXT NOT NULL)''')
+
+@app.post('/api/worker/local-tls-report')
+def worker_local_tls_report(body:LocalTLSReport,request:Request):
+    require_worker(request)
+    init_local_tls_reports()
+    if not body.observations or len(body.observations)>3:
+        raise HTTPException(400,'Expected one to three pinned local endpoint observations')
+    seen=set()
+    for obs in body.observations:
+        if obs.port not in _ALLOWED_LOCAL_ENDPOINTS or obs.expected_hostname!=_ALLOWED_LOCAL_ENDPOINTS[obs.port] or obs.port in seen:
+            raise HTTPException(400,'Endpoint not on pinned local demo allowlist')
+        if len(obs.subject)>300 or len(obs.serial)>100 or len(obs.error)>300 or not 0<=obs.key_bits<=16384:
+            raise HTTPException(400,'Invalid observation')
+        seen.add(obs.port)
+    stamp=core.timestamp()
+    with core.connect() as db:
+        for obs in body.observations:
+            db.execute('''INSERT OR REPLACE INTO local_tls_reports
+                (port,expected_hostname,observed_at,reachable,subject,serial,key_bits,days_remaining,hostname_matches,error)
+                VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                (obs.port,obs.expected_hostname,stamp,int(obs.reachable),obs.subject,obs.serial,
+                 obs.key_bits,obs.days_remaining,int(obs.hostname_matches),obs.error))
+    core.audit('worker.local_tls_scan',{'ports':sorted(seen),'reachable':sum(o.reachable for o in body.observations),
+                                        'weak_keys':[o.port for o in body.observations if o.reachable and 0<o.key_bits<2048],
+                                        'hostname_mismatches':[o.port for o in body.observations if o.reachable and not o.hostname_matches]})
+    return {'recorded':len(body.observations),'observed_at':stamp}
+
+@app.get('/api/local-tls-endpoints')
+def local_tls_endpoints():
+    init_local_tls_reports()
+    with core.connect() as db:
+        rows=[dict(row) for row in db.execute('SELECT * FROM local_tls_reports ORDER BY port')]
+    for row in rows:
+        row['reachable']=bool(row['reachable'])
+        row['hostname_matches']=bool(row['hostname_matches'])
+        row['findings']=(['UNREACHABLE'] if not row['reachable'] else
+            (['WEAK_RSA_KEY'] if 0<row['key_bits']<2048 else [])+
+            (['HOSTNAME_MISMATCH'] if not row['hostname_matches'] else [])+
+            (['EXPIRED'] if row['days_remaining']<0 else []))
+    return {'source':'authenticated Ubuntu worker observations; not direct Render TLS probes',
+            'endpoints':rows}
