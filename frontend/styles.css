@@ -191,3 +191,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Ensure action feedback is readable on dark backgrounds. */
+.notice{color:#eaf4ff!important;background:#16354b!important;border:1px solid #467aa0!important}
+.notice.error{color:#ffe7e7!important;background:#44232b!important;border-color:#a74b5c!important}
