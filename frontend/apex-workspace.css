@@ -35,4 +35,21 @@
 #health-trend:empty:before{content:"Loading recorded scan history";display:block;color:#8da2ae;font:500 12px 'IBM Plex Mono',monospace}
 @media(max-width:1100px){.apex-workspace .overview-hero{grid-template-columns:minmax(195px,.75fr) minmax(300px,1.25fr)!important}.apex-workspace .demo-intro{padding:34px!important}.apex-workspace .demo-intro h2{font-size:40px!important}.apex-dash-actions{display:none}}
 @media(max-width:760px){.apex-dashboard-head{margin:10px 0 18px}.apex-workspace .overview-hero{grid-template-columns:1fr!important}.apex-workspace .posture{border-right:0!important;border-bottom:1px solid #36514e!important}.apex-workspace .health-gauge{width:145px!important;height:145px!important}.apex-workspace .demo-intro{padding:28px!important}.apex-workspace .demo-intro h2{font-size:38px!important}.apex-hero-footer{margin-top:25px}.apex-dash-title h2{font-size:30px!important}}
+@media(max-width:520px){
+  .shell{flex-direction:column}
+  .sidebar{position:static;width:100%!important;height:auto;padding:8px 15px!important;border-right:0!important;border-bottom:1px solid #26303c}
+  .sidebar .brand{display:none}
+  .sidebar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+  .sidebar .nav{min-height:42px;margin:0!important;padding:6px!important;font-size:18px!important}
+  .sidebar .nav.active:before{display:none}
+  .topbar{min-height:52px!important;gap:8px;padding:0 14px!important}
+  .topright .pill{display:none}
+  .heading{margin-top:0!important;gap:12px!important}
+  .heading:before{content:none!important}
+  .apex-workspace .posture,.apex-workspace .demo-intro{padding:20px!important}
+  .apex-workspace .demo-intro h2{font-size:30px!important}
+  #certificate-import-form input{min-width:0!important;width:100%}
+  #certificate-bulk-form{flex-wrap:wrap}
+  #certificate-bulk-form input{min-width:0;max-width:100%}
+}
 @media(prefers-reduced-motion:reduce){.apex-workspace .health-fill{transition:none!important}}
