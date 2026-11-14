@@ -262,7 +262,19 @@ async function showDiagnostics(){
 }
 showDiagnostics();
 
-document.getElementById('llm-check')?.addEventListener('click',async()=>{const btn=$('llm-check');btn.disabled=true;btn.textContent='Checking…';try{const data=await api('explanations');state.explanationMode=data.mode;state.explanationReason=data.reason;state.explanationNote=data.note;state.explanationHint=data.provider_hint;state.explanations=data.recommendations||[];render();notice(['groq-llm','gemini-llm'].includes(data.mode)?'AI LLM responded successfully':data.mode==='no-findings'?'No findings to analyze':('AI fallback: '+(data.reason||'unknown error').replaceAll('_',' ')))}catch(e){notice('LLM check failed: '+e.message,true)}finally{btn.disabled=false;btn.textContent='Check LLM now'}});
+function showLLMResults(data){
+  let dialog=document.getElementById('apex-llm-dialog');
+  if(!dialog){dialog=document.createElement('dialog');dialog.id='apex-llm-dialog';dialog.className='apex-llm-dialog';dialog.setAttribute('aria-labelledby','apex-llm-title');document.body.appendChild(dialog);dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});}
+  const ai=['gemini-llm','groq-llm'].includes(data.mode);
+  const results=Array.isArray(data.recommendations)?data.recommendations:[];
+  const title=ai?'AI security analysis':data.mode==='no-findings'?'No findings to analyze':'Rule-based security guidance';
+  const subtitle=ai?'Live AI-generated explanations for detected findings':data.mode==='no-findings'?'The scanner has no current findings to explain':'AI unavailable; showing deterministic guidance instead';
+  dialog.innerHTML='<div class="apex-llm-modal-head"><div><span class="apex-llm-eyebrow">'+(ai?'● AI RESPONSE':'● ANALYSIS RESULT')+'</span><h2 id="apex-llm-title">'+esc(title)+'</h2><p>'+esc(subtitle)+'</p></div><button class="apex-llm-close" type="button" aria-label="Close AI results">✕</button></div><div class="apex-llm-modal-body">'+(results.length?results.map((item,index)=>'<article class="apex-llm-result"><span class="apex-llm-result-index">'+String(index+1).padStart(2,'0')+'</span><div><strong>'+esc(item.finding_id||'Finding')+'</strong><p>'+esc(item.explanation||'No explanation returned')+'</p></div></article>').join(''):'<p class="apex-llm-empty">'+esc(data.note||'No explanations returned for the current findings.')+'</p>')+'</div><div class="apex-llm-modal-footer"><span>'+results.length+' finding explanation'+(results.length===1?'':'s')+'</span><button class="secondary apex-llm-done" type="button">Close</button></div>';
+  dialog.querySelector('.apex-llm-close').addEventListener('click',()=>dialog.close());
+  dialog.querySelector('.apex-llm-done').addEventListener('click',()=>dialog.close());
+  if(!dialog.open)dialog.showModal();
+}
+document.getElementById('llm-check')?.addEventListener('click',async()=>{const btn=$('llm-check');btn.disabled=true;btn.textContent='Checking…';try{const data=await api('explanations');state.explanationMode=data.mode;state.explanationReason=data.reason;state.explanationNote=data.note;state.explanationHint=data.provider_hint;state.explanations=data.recommendations||[];render();showLLMResults(data)}catch(e){notice('LLM check failed: '+e.message,true)}finally{btn.disabled=false;btn.textContent='Check LLM now'}});
 document.getElementById('record-local-recovery')?.addEventListener('click',async()=>{
   const operator=prompt('Enter the operator name for this local Smallstep run');
   if(!operator?.trim())return;
