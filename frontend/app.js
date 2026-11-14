@@ -316,3 +316,19 @@ document.getElementById('certificate-bulk-form')?.addEventListener('submit',asyn
   }catch(error){output.textContent='Bulk import failed: '+error.message;}
   finally{button.disabled=false;}
 });
+
+window.addEventListener('aegis:review-incident', async event => {
+  const locate = () => [...document.querySelectorAll('.incident-card')]
+    .find(card => card.dataset.incidentId === event.detail);
+  tab('incidents');
+  if (!locate()) await refresh();
+  if (state.tab !== 'incidents') return;
+  const target = locate();
+  if (!target) {
+    notice('This incident is no longer available.', true);
+    return;
+  }
+  target.tabIndex = -1;
+  target.focus({preventScroll: true});
+  target.scrollIntoView({block: 'start'});
+});
