@@ -80,6 +80,25 @@ def request_renewal(body:RenewalRequest,request:Request):
     try: return core.request_certificate_renewal(body.certificate_id)
     except ValueError as exc: raise HTTPException(400,str(exc))
 
+# Separate real-ACME demo request: healthy certificate rotation is permitted only
+# for the pinned private demo hostname and still requires explicit approval.
+@app.post('/api/certificates/real-acme-request')
+def request_real_acme(body:RenewalRequest,request:Request):
+    require_operator(request)
+    init_worker_jobs()
+    with core.LOCK:
+        with core.connect() as db:
+            cert=db.execute('SELECT * FROM certificates WHERE id=? AND active=1',(body.certificate_id,)).fetchone()
+            if not cert or cert['hostname']!='service-01.demo.local' or cert['source']=='uploaded-public-cert':
+                raise HTTPException(400,'Only the managed service-01.demo.local certificate supports real ACME demo')
+            existing=db.execute("SELECT id FROM incidents WHERE certificate_id=? AND status IN ('pending_approval','approved','executing')",(body.certificate_id,)).fetchone()
+            if existing: raise HTTPException(409,'An incident is already pending or running for this certificate')
+            incident_id=secrets.token_hex(12)
+            db.execute('INSERT INTO incidents(id,certificate_id,type,status,created_at) VALUES(?,?,?,?,?)',
+                       (incident_id,body.certificate_id,'REAL_ACME_RENEWAL','pending_approval',core.timestamp()))
+        core.audit('real_acme.renewal_requested',{'incident_id':incident_id,'certificate_id':body.certificate_id,'hostname':'service-01.demo.local','note':'Awaiting explicit operator approval; no CA action performed'})
+    return {'incident_id':incident_id,'status':'pending_approval'}
+
 class Compromise(BaseModel):
     certificate_id:str
 @app.post('/api/simulate-compromise')
