@@ -170,18 +170,35 @@ function openCertificateReview(id){
   const eligible=cert.source!=='uploaded-public-cert'&&findings.length>0&&!previous.some(i=>['pending_approval','approved','executing'].includes(i.status));
   let modal=document.getElementById('certificate-review-dialog');
   if(!modal){modal=document.createElement('dialog');modal.id='certificate-review-dialog';modal.style.cssText='max-width:570px;width:calc(100% - 30px);background:#101c2c;color:#f0f4fa;border:1px solid #53647c;border-radius:14px;padding:24px;max-height:85vh;overflow:auto';document.body.appendChild(modal);}
-  const completed=state.incidents.filter(i=>i.status==='resolved').find(i=>state.steps[i.id]?.comparison?.after?.serial===cert.serial);
-  modal.innerHTML=`<h2 style="margin:0 0 12px">Certificate review</h2><p><strong>${esc(cert.hostname)}</strong></p><p>Expiry: ${esc(new Date(cert.expires_at).toLocaleDateString())} · Key: ${esc(cert.key_type)}-${esc(cert.key_bits)}</p>
+  const completed=state.incidents.filter(i=>i.status==='resolved'&&i.type==='CERTIFICATE_RENEWAL').find(i=>state.steps[i.id]?.comparison?.after?.serial===cert.serial);
+  const before=completed&&state.steps[completed.id]?.comparison?.before;
+  const expiryFinding=findings.some(f=>['EXPIRED','EXPIRING_7D','EXPIRING_14D','EXPIRING_30D'].includes(f.code));
+  modal.innerHTML=`<h2 style="margin:0 0 12px">Certificate review</h2><p><strong>${esc(cert.hostname)}</strong></p><p>Expires: ${esc(new Date(cert.expires_at).toLocaleDateString())} · Key: ${esc(cert.key_type)}-${esc(cert.key_bits)}</p>
     <h3>Detected issues</h3>${findings.length?findings.map(f=>`<p style="border-left:3px solid #e7a65a;padding-left:10px"><strong>${esc(f.code)}</strong> (${esc(f.severity)}): ${esc(f.message)}</p>`).join(''):'<p>No current policy findings. Certificate is healthy.</p>'}
-    ${completed?'<p style="color:#83d8aa">Previously renewed in this sandbox. Replacement certificate remains active.</p>':''}
+    ${completed?`<div style="border-left:3px solid #64c99a;padding-left:12px"><strong>Renewed successfully in sandbox</strong><p>Old expiry: ${esc(before?.expires_at||'See audit')}<br>New expiry: ${esc(cert.expires_at)}<br>Old serial: ${esc(before?.serial||'See audit')}<br>New serial: ${esc(cert.serial)}</p><p>Fix: Replaced the expiring certificate with a fresh RSA-2048 certificate, updated the active sandbox inventory, and recorded revocation and verification evidence.</p></div>`:''}
     ${cert.source==='uploaded-public-cert'?'<p>Imported public certificate: analysis only. Its owner/CA must authorize renewal.</p>':''}
     ${previous.length?'<h3>Remediation history</h3>'+previous.map(i=>`<p>${esc(i.type)}: <strong>${esc(i.status)}</strong> ${esc(i.created_at)}</p>`).join(''):''}
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">${eligible?`<button class="primary" id="request-cert-renewal">Request renewal / fix</button>`:''}<button class="secondary" id="close-cert-review">Close</button></div>`;
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">${eligible?`<button class="primary" id="request-cert-renewal">${expiryFinding?'Renew certificate':'Fix certificate'}</button>`:''}<button class="secondary" id="close-cert-review">Close</button></div>`;
   modal.querySelector('#close-cert-review').onclick=()=>modal.close();
   modal.querySelector('#request-cert-renewal')?.addEventListener('click',async()=>{
-    const btn=modal.querySelector('#request-cert-renewal');btn.disabled=true;
-    try{const result=await api('certificates/renewal-request',{method:'POST',body:JSON.stringify({certificate_id:id})});modal.close();await refresh();tab('incidents');notice('Renewal requested for '+cert.hostname+'. Human approval is required before replacement.');}
-    catch(err){notice('Renewal request failed: '+err.message,true);btn.disabled=false;}
+    const approver=prompt('Human approval required: enter your operator name to authorize replacement of '+cert.hostname);
+    if(!approver?.trim())return;
+    if(!confirm('Approve sandbox certificate renewal for '+cert.hostname+'? The old certificate will be superseded and the replacement will be validated.'))return;
+    const btn=modal.querySelector('#request-cert-renewal');btn.disabled=true;btn.textContent='Renewing…';
+    let incidentId=null;
+    try{
+      const request=await api('certificates/renewal-request',{method:'POST',body:JSON.stringify({certificate_id:id})});
+      incidentId=request.incident_id;
+      const result=await api('incidents/'+incidentId+'/approve',{method:'POST',body:JSON.stringify({approver:approver.trim()})});
+      modal.close();await refresh();
+      const newCert=state.certs.find(c=>c.id===result.new_certificate_id);
+      if(newCert)openCertificateReview(newCert.id);
+      notice('Certificate renewed in sandbox. Replacement active; details and audit recorded.');
+    }catch(err){
+      await refresh();modal.close();
+      if(incidentId)tab('incidents');
+      notice('Renewal failed or requires attention: '+err.message,true);
+    }
   });
   modal.showModal();
 }
