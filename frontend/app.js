@@ -168,7 +168,7 @@ function openCertificateReview(id){
   const findings=state.findings.filter(f=>f.certificate_id===id);
   const previous=state.incidents.filter(i=>i.certificate_id===id);
   const eligible=cert.source!=='uploaded-public-cert'&&findings.length>0&&!previous.some(i=>['pending_approval','approved','executing'].includes(i.status));
-  const realAcmeEligible=eligible&&cert.hostname==='service-01.demo.local';
+  const realAcmeEligible=cert.hostname==='service-01.demo.local'&&cert.source!=='uploaded-public-cert'&&!previous.some(i=>['pending_approval','approved','executing'].includes(i.status));
   let modal=document.getElementById('certificate-review-dialog');
   if(!modal){modal=document.createElement('dialog');modal.id='certificate-review-dialog';modal.style.cssText='max-width:570px;width:calc(100% - 30px);background:#101c2c;color:#f0f4fa;border:1px solid #53647c;border-radius:14px;padding:24px;max-height:85vh;overflow:auto';document.body.appendChild(modal);}
   const completed=state.incidents.filter(i=>i.status==='resolved'&&i.type==='CERTIFICATE_RENEWAL').find(i=>state.steps[i.id]?.comparison?.after?.serial===cert.serial);
@@ -187,7 +187,7 @@ function openCertificateReview(id){
     if(!confirm('Queue REAL ACME renewal for service-01.demo.local? This will execute only if the separately authenticated Ubuntu worker is online and explicitly enabled.'))return;
     const btn=modal.querySelector('#request-real-acme');btn.disabled=true;
     try{
-      const request=await api('certificates/renewal-request',{method:'POST',body:JSON.stringify({certificate_id:id})});
+      const request=await api('certificates/real-acme-request',{method:'POST',body:JSON.stringify({certificate_id:id})});
       const job=await api('incidents/'+request.incident_id+'/approve-local-acme',{method:'POST',body:JSON.stringify({approver:approver.trim(),hostname:cert.hostname})});
       modal.close();await refresh();tab('incidents');
       notice('Real ACME job '+job.job_id+' queued. Ubuntu worker must be online with --enable-acme; deployment and revocation are NOT yet verified.');
