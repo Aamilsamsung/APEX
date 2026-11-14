@@ -439,3 +439,63 @@ def import_certificates_bulk(body:BulkCertificateImport,request:Request):
             results.append({'index':index,'ok':False,'error':str(exc)[:200]})
     core.audit('certificate.bulk_import',{'count':len(blocks),'imported':sum(x['ok'] for x in results)})
     return {'count':len(blocks),'imported':sum(x['ok'] for x in results),'results':results}
+
+# User-declared metadata is deliberately kept separate from cryptographically verified inventory.
+class SimulatedMetadataImport(BaseModel):
+    text: str
+
+@app.post('/api/certificates/import-metadata')
+def import_certificate_metadata(body:SimulatedMetadataImport,request:Request):
+    require_operator(request)
+    import json, re
+    from datetime import date, datetime
+    if len(body.text)>131072: raise HTTPException(400,'Maximum file size is 128 KB')
+    if 'PRIVATE KEY' in body.text.upper(): raise HTTPException(400,'Never upload private keys')
+    try:
+        data=json.loads(body.text)
+    except json.JSONDecodeError:
+        try:
+            decoder=json.JSONDecoder()
+            data=[]
+            remaining=body.text.strip()
+            while remaining:
+                obj,offset=decoder.raw_decode(remaining)
+                data.append(obj)
+                remaining=remaining[offset:].strip().lstrip(',').strip()
+        except (ValueError,TypeError) as exc:
+            raise HTTPException(400,'Use valid JSON objects separated by blank lines, or a JSON array') from exc
+    if isinstance(data,dict): data=[data]
+    if not isinstance(data,list) or not 1<=len(data)<=30:
+        raise HTTPException(400,'Provide 1 to 30 certificate metadata objects')
+    results=[]
+    today=date.today()
+    for i,entry in enumerate(data,1):
+        if not isinstance(entry,dict):
+            results.append({'index':i,'ok':False,'error':'Entry must be a JSON object'});continue
+        hostname=str(entry.get('hostname') or entry.get('name') or '').strip()
+        if not hostname or len(hostname)>253:
+            results.append({'index':i,'ok':False,'error':'hostname is required'});continue
+        risks=[]
+        expiry=entry.get('expiry_date',entry.get('expires_at',entry.get('expiry')))
+        days_left=None
+        if expiry:
+            try:
+                days_left=(date.fromisoformat(str(expiry)[:10])-today).days
+                if days_left<0: risks.append('EXPIRED')
+                elif days_left<=7: risks.append('EXPIRING_WITHIN_7_DAYS')
+                elif days_left<=14: risks.append('EXPIRING_WITHIN_14_DAYS')
+                elif days_left<=30: risks.append('EXPIRING_WITHIN_30_DAYS')
+            except ValueError: risks.append('INVALID_EXPIRY_DATE')
+        bits=entry.get('key_size',entry.get('key_bits'))
+        try:
+            if bits is not None and int(bits)<2048 and str(entry.get('key_type','RSA')).upper()=='RSA':
+                risks.append('WEAK_RSA_KEY')
+        except (ValueError,TypeError): risks.append('INVALID_KEY_SIZE')
+        if str(entry.get('signature_algorithm','')).lower() in ('sha1','sha1withrsa','sha1withrsaencryption'):
+            risks.append('SHA1_SIGNATURE')
+        results.append({'index':i,'ok':True,'hostname':hostname,'issuer':str(entry.get('issuer',''))[:150],
+                        'days_remaining':days_left,'risks':risks,'source':'user-declared-unverified-metadata',
+                        'verified':False})
+    core.audit('certificate.metadata_import_preview',{'count':len(data),'analyzed':sum(x['ok'] for x in results),'note':'Unverified user-declared metadata; not added to verified inventory'})
+    return {'count':len(data),'analyzed':sum(x['ok'] for x in results),'results':results,
+            'warning':'Simulated metadata only. No certificate cryptographic validation or live TLS check performed.'}
