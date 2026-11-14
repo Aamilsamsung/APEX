@@ -171,7 +171,7 @@ def scan_local_demo_endpoints() -> list[dict]:
             row.update(reachable=True,subject=cert.subject.rfc4514_string()[:300],
                        serial=format(cert.serial_number,'X'),key_bits=getattr(cert.public_key(),'key_size',0),
                        days_remaining=int((cert.not_valid_after_utc-datetime.now(timezone.utc)).total_seconds()//86400),
-                       hostname_matches=any(dns_matches(name,expected) for name in sans))
+                       hostname_matches=any(dns_matches(expected,name) for name in sans))
         except (OSError,ssl.SSLError,ValueError) as exc:
             row['error']=type(exc).__name__
         observations.append(row)
