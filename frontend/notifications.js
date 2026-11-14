@@ -8,7 +8,7 @@
   const toast=document.getElementById('apex-alert-toast');
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let previous=new Map(),initialized=false,muted=new Set(),busy=false;
-  function label(i){return i.status==='pending_approval'?'Approval required':i.status==='resolved'?'Incident resolved':i.status==='rejected'?'Remediation rejected':i.status==='failed'?'Remediation failed':'Incident updated'}
+  function label(i){return i.status==='pending_approval'?'Approval required':['resolved','acme_recovery_worker_verified'].includes(i.status)?'Incident resolved':i.status==='rejected'?'Remediation rejected':i.status==='failed'?'Remediation failed':'Incident updated'}
   function render(items){
     const pending=items.filter(i=>i.status==='pending_approval');
     count.textContent=pending.length>9?'9+':String(pending.length);
