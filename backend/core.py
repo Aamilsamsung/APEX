@@ -517,10 +517,11 @@ def explain_with_llm():
     fallback=explain_deterministically()
     if not fs:
         return {'mode':'no-findings','recommendations':[],
-                'note':'No detected findings to send to Groq. The LLM has not been tested.'}
-    key=os.environ.get('GROQ_API_KEY','').strip()
+                'note':'No detected findings to send to the configured provider. The LLM has not been tested.'}
+    provider='gemini' if os.environ.get('GEMINI_API_KEY','').strip() else 'groq'
+    key=os.environ.get('GEMINI_API_KEY' if provider=='gemini' else 'GROQ_API_KEY','').strip()
     if not key:
-        return {**fallback,'reason':'missing_api_key','note':'GROQ_API_KEY is missing from the running Render service.'}
+        return {**fallback,'reason':'missing_api_key','note':'No Gemini or Groq API key configured.'}
     allowed={f['id']:f for f in fs}
     prompt=json.dumps([{'id':f['id'],'code':f['code'],'severity':f['severity'],
                         'message':f['message']} for f in fs])
@@ -534,11 +535,26 @@ def explain_with_llm():
            'change severities, invent evidence, or include credentials.')},
                    {'role':'user','content':prompt}]}
     try:
-        req=urllib.request.Request('https://api.groq.com/openai/v1/chat/completions',
-            data=json.dumps(request).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
-        with urllib.request.urlopen(req,timeout=20) as response:
-            body=json.load(response)
-        parsed=json.loads(body['choices'][0]['message']['content'])
+        if provider=='gemini':
+            model=os.environ.get('GEMINI_MODEL','gemini-2.5-flash')
+            if not model.replace('-','').replace('.','').isalnum():
+                raise ValueError('Invalid Gemini model name')
+            url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent'
+            payload={'systemInstruction':{'parts':[{'text':request['messages'][0]['content']}]},
+                     'contents':[{'role':'user','parts':[{'text':prompt}]}],
+                     'generationConfig':{'temperature':0,'responseMimeType':'application/json'}}
+            req=urllib.request.Request(url,data=json.dumps(payload).encode(),
+                headers={'x-goog-api-key':key,'Content-Type':'application/json'},method='POST')
+            with urllib.request.urlopen(req,timeout=20) as response:
+                body=json.load(response)
+            parts=body['candidates'][0]['content']['parts']
+            parsed=json.loads(''.join(part.get('text','') for part in parts))
+        else:
+            req=urllib.request.Request('https://api.groq.com/openai/v1/chat/completions',
+                data=json.dumps(request).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
+            with urllib.request.urlopen(req,timeout=20) as response:
+                body=json.load(response)
+            parsed=json.loads(body['choices'][0]['message']['content'])
         items=parsed.get('recommendations',[])
         if not isinstance(items,list): raise ValueError('Recommendations must be a list')
         recommendations=[]; seen=set(); ranks=set()
@@ -562,7 +578,7 @@ def explain_with_llm():
                     'priority':len(fs)+1,'explanation':next((x['explanation'] for x in fallback['recommendations'] if x['finding_id']==f['id']),f['message'])})
         recommendations.sort(key=lambda r:(r['priority'],r['finding_id']))
         for idx,item in enumerate(recommendations,1): item['priority']=idx
-        return {'mode':'groq-llm','recommendations':recommendations,
+        return {'mode':provider+'-llm','recommendations':recommendations,
                 'note':'Every recommendation maps to a rule-generated finding; missing AI explanations are filled by deterministic guidance.'}
     except Exception as exc:
         status=getattr(exc,'code',None)
