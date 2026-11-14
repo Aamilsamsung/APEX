@@ -536,8 +536,11 @@ def explain_with_llm():
                    {'role':'user','content':prompt}]}
     try:
         if provider=='gemini':
-            model=os.environ.get('GEMINI_MODEL','gemini-2.5-flash')
-            if not model.replace('-','').replace('.','').isalnum():
+            model=os.environ.get('GEMINI_MODEL','gemini-2.5-flash').strip()
+            # Google model-list responses include "models/"; normalize either form.
+            if model.startswith('models/'):
+                model=model[len('models/'):]
+            if not model or not model.replace('-','').replace('.','').isalnum():
                 raise ValueError('Invalid Gemini model name')
             url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent'
             payload={'systemInstruction':{'parts':[{'text':request['messages'][0]['content']}]},
@@ -612,8 +615,12 @@ def explain_with_llm():
                     provider_hint='invalid_api_key'
                 elif 'quota' in low or 'limit' in low:
                     provider_hint='quota_or_limit'
+                elif status==404 and ('not found' in low or 'not supported' in low or 'model' in low):
+                    provider_hint='model_not_found_or_unsupported'
+                elif status==400:
+                    provider_hint='invalid_generation_request'
                 else:
-                    provider_hint='unclassified_403_response'
+                    provider_hint='unclassified_provider_response'
             except (UnicodeError,OSError): pass
         reason=('invalid_credentials' if status==401 else
                 'access_forbidden' if status==403 else
