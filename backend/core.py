@@ -346,10 +346,11 @@ def approve_and_remediate(incident_id,actor):
             audit('remediation.key_generated',{'incident_id':incident_id,'new_certificate_id':new_id,'key_bits':2048})
             audit('remediation.certificate_issued',{'incident_id':incident_id,'new_certificate_id':new_id,'issuer':'AEGIS Sandbox Root CA'})
             with connect() as c:
-                c.execute('INSERT INTO revoked_serials(serial,revoked_at,reason) VALUES(?,?,?)',(old['serial'],timestamp(),'keyCompromise'))
+                revocation_reason='superseded' if incident['type']=='CERTIFICATE_RENEWAL' else 'keyCompromise'
+                c.execute('INSERT INTO revoked_serials(serial,revoked_at,reason) VALUES(?,?,?)',(old['serial'],timestamp(),revocation_reason))
                 c.execute('UPDATE certificates SET revoked=1,active=0 WHERE id=?',(row['id'],))
                 c.execute('INSERT INTO certificates(id,hostname,path,key_path,source) VALUES(?,?,?,?,?)',(new_id,old['hostname'],path,key_path,'sandbox-reissued'))
-            audit('remediation.revoked',{'incident_id':incident_id,'old_serial':old['serial'],'mechanism':'sandbox revocation registry'})
+            audit('remediation.revoked',{'incident_id':incident_id,'old_serial':old['serial'],'mechanism':'sandbox revocation registry','reason':revocation_reason})
             # A live endpoint is optional; when present, verify the actual TLS-served certificate.
             live_verification={'status':'not_running','detail':'No local TLS endpoint was registered for this certificate'}
             requires_live_tls = os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1' and old['hostname']=='service-01.demo.local'
@@ -384,7 +385,7 @@ def approve_and_remediate(incident_id,actor):
                 c.execute('UPDATE incidents SET status="resolved",resolved_at=? WHERE id=?',(timestamp(),incident_id))
             from .notifications import notify
             notification=notify(incident_id,old['hostname'],'resolved',live_verification)
-            audit('remediation.completed',{'incident_id':incident_id,'old_certificate':row['id'],'new_certificate':new_id,
+            audit('remediation.completed',{'incident_id':incident_id,'old_certificate':row['id'],'new_certificate':new_id,'remediation_type':incident['type'],
                   'steps':['sandbox CA revocation registry updated','fresh private key generated','CA-signed sandbox certificate issued','sandbox inventory replacement registered','replacement certificate validated'],
                   'limitation':'Local CA issuance (not ACME); live endpoint verification and webhook delivery recorded separately'})
             audit('remediation.notification_result',{'incident_id':incident_id,**notification})
