@@ -10,7 +10,7 @@ function renderUnverifiedImports(){
   if(!body)return;
   const query=($('search')?.value||'').toLowerCase();
   const rows=unverifiedImports.filter(r=>String(r.hostname).toLowerCase().includes(query));
-  body.innerHTML=rows.map(r=>'<tr><td>'+esc(r.hostname)+'</td><td>'+esc(r.days_remaining===null?'Not provided':r.days_remaining+' days')+'</td><td>'+esc(r.issuer||'Not provided')+'</td><td>'+esc(r.risks?.length?r.risks.join(', '):'No declared risks')+'</td><td><span class="status bad">Unverified metadata</span></td></tr>').join('');
+  body.innerHTML=rows.map(r=>{const risks=Array.isArray(r.risks)?r.risks:[];const status=risks.length?'<span class="status bad" title="Risk based on declared metadata only">At risk · '+risks.length+' finding'+(risks.length===1?'':'s')+'</span>':'<span class="status" style="color:#9bd8b8;border:1px solid #47745d;background:#17362a" title="No risks found in declared fields; certificate not verified">No declared risks</span>';return '<tr><td>'+esc(r.hostname)+'</td><td>'+esc(r.days_remaining==null?'Not provided':r.days_remaining+' days')+'</td><td>'+esc(r.issuer||'Not provided')+'</td><td>'+status+'</td><td>'+esc(risks.length?risks.join(', '):'None declared')+'</td><td><span class="status bad">Unverified metadata</span></td></tr>';}).join('');
   if(empty)empty.hidden=unverifiedImports.length>0;
 }
 async function api(path,options={}){
