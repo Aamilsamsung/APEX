@@ -177,7 +177,23 @@ def scan_local_demo_endpoints() -> list[dict]:
         observations.append(row)
     return observations
 
-def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_acme: bool = False, directory: str = DEFAULT_DIRECTORY) -> int:
+def run_full_acme(ca_root: str, config_dir: str, http_port: int) -> tuple[bool, str, dict | None]:
+    command=[sys.executable,'-m','backend.acme_recovery','--rotate-and-deploy',
+             '--ca-root',ca_root,'--certbot-config',config_dir,'--http-port',str(http_port),
+             '--approve-revocation','--json-evidence']
+    try:
+        result=subprocess.run(command,capture_output=True,text=True,timeout=360,check=False)
+        evidence=json.loads(result.stdout.splitlines()[-1])
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return False,'Private CA recovery did not return verified evidence',None
+    if result.returncode or not isinstance(evidence,dict) or not evidence.get('ca_revocation_confirmed'):
+        return False,'Private CA recovery did not verify all steps',None
+    return True,'Private CA reissuance, trusted TLS and old serial revocation verified',evidence
+
+
+def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_acme: bool = False,
+             directory: str = DEFAULT_DIRECTORY, ca_root: str | None = None,
+             config_dir: str = '/etc/letsencrypt', http_port: int = 80) -> int:
     if not site.startswith("https://") or not token:
         print("HTTPS site and AEGIS_WORKER_TOKEN required", file=sys.stderr)
         return 1
@@ -188,7 +204,12 @@ def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_a
         h={**headers,**({"Content-Type":"application/json"} if data else {})}
         with urllib.request.urlopen(urllib.request.Request(url,data=data,headers=h,method=method),timeout=20) as response:
             return json.load(response)
-    print("APEX worker started (" + ("explicitly enabled demo ACME issuance" if enable_acme else "certificate inspection only") + ").",flush=True)
+    actions={'inspect_certificate'}
+    if enable_acme:
+        actions.add('acme_recovery')
+        if ca_root and directory==DEFAULT_DIRECTORY:
+            actions.add('acme_full_recovery')
+    print("APEX worker started with allowed operations: "+', '.join(sorted(actions)),flush=True)
     last_scan=0.0
     while True:
         try:
@@ -199,10 +220,15 @@ def run_jobs(site: str, token: str, cert_path: str, once: bool = False, enable_a
                 last_scan=time.monotonic()
             jobs=call(base)
             for job in jobs:
-                if job["status"]!="queued" or job["hostname"]!="service-01.demo.local" or (job["action"]!="inspect_certificate" and not (enable_acme and job["action"]=="acme_recovery")):
+                if job["status"]!="queued" or job["hostname"]!="service-01.demo.local" or job["action"] not in actions:
                     continue
                 call(base+"/"+job["id"]+"/claim","POST",{})
                 try:
+                    if job["action"]=="acme_full_recovery":
+                        ok, details, evidence=run_full_acme(ca_root, config_dir, http_port)
+                        call(base+"/"+job["id"]+"/complete","POST",{"ok":ok,"details":details,"acme_evidence":evidence})
+                        print(f"Job {job['id']}: {'completed' if ok else 'failed'} — {details}",flush=True)
+                        continue
                     if job["action"]=="acme_recovery":
                         ok, details = rotate_demo_certificate(directory)
                         call(base+"/"+job["id"]+"/complete","POST",{"ok":ok,"details":details})
@@ -230,15 +256,21 @@ def main() -> int:
     parser.add_argument("--connect", action="store_true", help="Test authenticated connection to Render")
     parser.add_argument("--run", action="store_true", help="Poll approved inspection jobs (read-only)")
     parser.add_argument("--once", action="store_true", help="Poll once and exit")
-    parser.add_argument("--enable-acme", action="store_true", help="Explicitly allow approved demo ACME reissuance; no CA revocation")
+    parser.add_argument("--enable-acme", action="store_true", help="Allow approved demo ACME reissuance")
+    parser.add_argument("--acme-recovery-ca-root", help="Allow separately approved full recovery against the pinned local CA")
+    parser.add_argument("--certbot-config", default="/etc/letsencrypt")
+    parser.add_argument("--http-port", type=int, default=80)
     parser.add_argument("--site", default=os.getenv("AEGIS_SITE_URL", "https://apex-aegis-pki.onrender.com"))
     parser.add_argument("--directory", default=os.getenv("AEGIS_ACME_DIRECTORY_URL", DEFAULT_DIRECTORY))
     parser.add_argument("--cert", default=DEFAULT_CERT)
     args = parser.parse_args()
+    if not 1 <= args.http_port <= 65535:
+        parser.error("HTTP port must be between 1 and 65535")
     if args.verify_served:
         return 0 if verify_served_certificate(args.cert) else 1
     if args.run:
-        return run_jobs(args.site, os.getenv("AEGIS_WORKER_TOKEN",""), args.cert, args.once, args.enable_acme, args.directory)
+        return run_jobs(args.site, os.getenv("AEGIS_WORKER_TOKEN",""), args.cert, args.once, args.enable_acme,
+                        args.directory,args.acme_recovery_ca_root,args.certbot_config,args.http_port)
     if args.connect:
         return 0 if check_remote(args.site, os.getenv("AEGIS_WORKER_TOKEN", "")) else 1
     if not args.check:
