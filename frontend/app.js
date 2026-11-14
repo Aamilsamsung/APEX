@@ -274,11 +274,13 @@ document.getElementById('certificate-bulk-form')?.addEventListener('submit',asyn
   if(!file)return;
   if(file.size>131072){output.textContent='File too large (128 KB maximum).';return;}
   const button=event.target.querySelector('button[type=submit]');
-  button.disabled=true;output.textContent='Importing public certificates…';
+  button.disabled=true;output.textContent='Analyzing file…';
   try{
     const pem=await file.text();
-    const result=await api('certificates/import-bulk',{method:'POST',body:JSON.stringify({pem})});
-    output.textContent=result.imported+' of '+result.count+' certificates imported and scanned. '+result.results.filter(r=>!r.ok).map(r=>'#'+r.index+': '+r.error).join('; ');
+    const isPem=pem.includes('-----BEGIN CERTIFICATE-----');
+    const result=await api(isPem?'certificates/import-bulk':'certificates/import-metadata',{method:'POST',body:JSON.stringify(isPem?{pem}:{text:pem})});
+    if(isPem){output.textContent=result.imported+' of '+result.count+' certificates imported and scanned. '+result.results.filter(r=>!r.ok).map(r=>'#'+r.index+': '+r.error).join('; ');}
+    else {output.replaceChildren();const heading=document.createElement('strong');heading.textContent='SIMULATED / UNVERIFIED — '+result.analyzed+' of '+result.count+' records analyzed. No cryptographic verification performed.';output.append(heading);const list=document.createElement('ul');for(const item of result.results){const li=document.createElement('li');li.textContent=item.ok?item.hostname+' — '+(item.risks.length?item.risks.join(', '):'No declared risks detected'):'Record '+item.index+': '+item.error;list.append(li);}output.append(list);}
     await refresh();
   }catch(error){output.textContent='Bulk import failed: '+error.message;}
   finally{button.disabled=false;}
