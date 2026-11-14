@@ -8,13 +8,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.end_headers(); self.wfile.write(b'AEGIS sandbox TLS endpoint')
     def log_message(self,*args): pass
 
-def serve(port=8443, hostname='service-01.demo.local'):
+def serve(port=8443, hostname='service-01.demo.local', ready=None):
     core.seed()
     print(f'AEGIS sandbox TLS server at https://127.0.0.1:{port} for {hostname}')
     last=None
     while True:
         with core.connect() as db:
-            cert=db.execute('SELECT path,key_path,id FROM certificates WHERE hostname=? AND active=1',(hostname,)).fetchone()
+            cert=db.execute("SELECT path,key_path,id FROM certificates WHERE hostname=? AND active=1 AND key_path!=''",(hostname,)).fetchone()
         if not cert:
             # Inventory may be reset by test fixtures or a concurrent sandbox reset.
             # Stop cleanly instead of raising an unhandled background-thread exception.
@@ -27,11 +27,13 @@ def serve(port=8443, hostname='service-01.demo.local'):
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert['path'],cert['key_path'])
         server.socket=context.wrap_socket(server.socket,server_side=True)
+        if ready is not None:
+            ready.set()
         try:
             while True:
                 server.handle_request()
                 with core.connect() as db:
-                    active=db.execute('SELECT id FROM certificates WHERE hostname=? AND active=1',(hostname,)).fetchone()
+                    active=db.execute("SELECT id FROM certificates WHERE hostname=? AND active=1 AND key_path!=''",(hostname,)).fetchone()
                 if not active or active['id']!=last: break
         finally: server.server_close()
 
