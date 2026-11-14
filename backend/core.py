@@ -486,7 +486,16 @@ def remediation_steps(incident_id):
         elif action=='notification.mocked':
             step('Owner notification simulated','A local notification record was written; no external message was sent.',at)
         elif action=='remediation.local_acme_approved':
-            step('Local ACME recovery approved','Operator authorized the allowlisted local ACME worker job; issuance is not yet confirmed.',at)
+            detail='Operator authorized the pinned private CA to reissue, deploy, verify TLS, and revoke the previous certificate.' if data.get('full_recovery') else 'Operator authorized the allowlisted local ACME issuance job.'
+            step('Local ACME recovery approved',detail,at)
+        elif action=='worker.job.completed' and data.get('action')=='acme_full_recovery':
+            evidence=data.get('acme_evidence')
+            if data.get('ok') and evidence:
+                step('Private ACME recovery verified by the worker',
+                     'New key and serial '+evidence['new_serial']+' verified at '+evidence['endpoint']+
+                     ' with SHA-256 '+evidence['fingerprint']+'. The CA accepted revocation of '+evidence['old_serial']+'.',at)
+            else:
+                step('Local ACME recovery failed','The authenticated worker did not verify all private CA steps.',at)
         elif action=='worker.job.completed' and data.get('action')=='acme_recovery':
             if data.get('ok'):
                 step('ACME certificate issued locally','Local worker reported successful reissuance and SAN verification. CA revocation and live TLS redeployment remain unverified.',at)
