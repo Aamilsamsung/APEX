@@ -578,7 +578,7 @@ def explain_with_llm():
                     'priority':len(fs)+1,'explanation':next((x['explanation'] for x in fallback['recommendations'] if x['finding_id']==f['id']),f['message'])})
         recommendations.sort(key=lambda r:(r['priority'],r['finding_id']))
         for idx,item in enumerate(recommendations,1): item['priority']=idx
-        return {'mode':provider+'-llm','recommendations':recommendations,
+        return {'mode':provider+'-llm','provider':provider,'recommendations':recommendations,
                 'note':'Every recommendation maps to a rule-generated finding; missing AI explanations are filled by deterministic guidance.'}
     except Exception as exc:
         status=getattr(exc,'code',None)
@@ -623,7 +623,7 @@ def explain_with_llm():
                 'timeout_or_network_error' if isinstance(exc,(TimeoutError,urllib.error.URLError)) else
                 'invalid_provider_response')
         audit('llm.fallback',{'error_type':type(exc).__name__, 'http_status':status,'reason':reason,'provider_code':provider_code,'provider_hint':provider_hint})
-        return {**fallback,'reason':reason,'http_status':status,'provider_code':provider_code,'provider_hint':provider_hint,'note':'Groq rejected the request (HTTP '+str(status)+'). Check Groq organization/project model permissions if 403.'}
+        return {**fallback,'reason':reason,'http_status':status,'provider_code':provider_code,'provider_hint':provider_hint,'provider':provider,'note':provider.title()+' request failed (HTTP '+str(status)+'). '+('Check GEMINI_MODEL and Google AI Studio model access.' if provider=='gemini' else 'Check Groq organization/project model permissions.')}
 
 
 def seed_mock_ct():
