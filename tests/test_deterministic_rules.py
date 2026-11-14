@@ -1,6 +1,7 @@
 """Deterministic risk rules: each reported finding must originate in a rule."""
 import pytest
-from backend.core import assess
+from datetime import timedelta
+from backend.core import assess, now
 
 
 def cert(**overrides):
@@ -33,6 +34,12 @@ def test_expected_rule(changes,expected):
 
 def test_healthy_certificate_has_no_findings():
     assert assess(cert()) == []
+
+
+def test_expiry_severity_does_not_round_into_the_earlier_band():
+    expires = (now()+timedelta(days=7,hours=12)).isoformat()
+    findings = assess(cert(days_remaining=7, expires_at=expires))
+    assert [finding['code'] for finding in findings] == ['EXPIRING_14D']
 
 
 def test_wildcard_covers_one_label_only():

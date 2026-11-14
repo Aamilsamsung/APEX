@@ -88,7 +88,7 @@ def rotate_demo_certificate(directory: str) -> tuple[bool, str]:
     command = ["sudo", "-n", "certbot", "certonly", "--standalone",
                "--server", DEFAULT_DIRECTORY, "--preferred-challenges", "http",
                "--cert-name", "service-01.demo.local", "-d", "service-01.demo.local",
-               "--force-renewal", "--non-interactive", "--agree-tos",
+               "--force-renewal", "--new-key", "--non-interactive", "--agree-tos",
                "--register-unsafely-without-email"]
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=240)

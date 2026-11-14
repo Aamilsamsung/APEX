@@ -25,10 +25,12 @@ app=FastAPI(title='AEGIS PKI',version='0.1.0',description='Authorized local PKI 
 @app.on_event('startup')
 def startup():
     core.seed()
-    orchestration.preventive_scan()
     if os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')=='1':
         from .demo_tls import serve
-        threading.Thread(target=serve,kwargs={'port':8443,'hostname':'service-01.demo.local'},daemon=True,name='aegis-local-tls-demo').start()
+        ready=threading.Event()
+        threading.Thread(target=serve,kwargs={'port':8443,'hostname':'service-01.demo.local','ready':ready},daemon=True,name='aegis-local-tls-demo').start()
+        ready.wait(timeout=2)
+    orchestration.preventive_scan()
     interval=int(os.environ.get('AEGIS_SCAN_INTERVAL_SECONDS','0'))
     if interval>=30:
         def periodic_scans():

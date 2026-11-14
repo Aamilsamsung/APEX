@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hmac, json, os, sqlite3, ssl, socket, threading, uuid, urllib.request, urllib.error, hashlib, time
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -196,7 +197,10 @@ def assess(cert):
     results=[]
     def add(code,severity,msg): results.append({'code':code,'severity':severity,'message':msg})
     days=cert['days_remaining']
-    if days < 0 or (cert.get('expires_at') and datetime.fromisoformat(cert['expires_at']) <= now()): add('EXPIRED','critical','Certificate has expired')
+    if cert.get('expires_at'):
+        remaining=(datetime.fromisoformat(cert['expires_at'])-now()).total_seconds()
+        days=ceil(remaining/86400) if remaining>0 else -1
+    if days < 0: add('EXPIRED','critical','Certificate has expired')
     elif days <= 7: add('EXPIRING_7D','high',f'Certificate expires in {days} days')
     elif days <= 14: add('EXPIRING_14D','medium',f'Certificate expires in {days} days')
     elif days <= 30: add('EXPIRING_30D','low',f'Certificate expires in {days} days')
@@ -223,9 +227,10 @@ def assess(cert):
     # Trust validation is handled separately using the local sandbox CA.
     return results
 
-def scan():
+def scan(certs=None):
     with LOCK:
-        certs=inventory()
+        if certs is None:
+            certs=inventory()
         with connect() as c:
             c.execute('DELETE FROM findings')
             wildcard_deployments={}
@@ -241,7 +246,7 @@ def scan():
                     fid=f"{cert['id']}:{finding['code']}"
                     c.execute('INSERT INTO findings(id,certificate_id,code,severity,message) VALUES(?,?,?,?,?)',
                               (fid,cert['id'],finding['code'],finding['severity'],finding['message']))
-        result=summary()
+        result=summary(certs)
         audit('scan.completed',{'certificates':len(certs),'scope':'registered local sandbox certificate files','health':result['health']})
     return result
 
@@ -264,8 +269,10 @@ def health_history(limit=60):
 def findings():
     with connect() as c: return [dict(r) for r in c.execute('SELECT * FROM findings ORDER BY CASE severity WHEN "critical" THEN 0 WHEN "high" THEN 1 WHEN "medium" THEN 2 ELSE 3 END,code')]
 
-def summary():
-    certs=inventory(); fs=findings()
+def summary(certs=None):
+    if certs is None:
+        certs=inventory()
+    fs=findings()
     penalties={'critical':30,'high':15,'medium':7,'low':3}
     # Per-certificate cap avoids double counting and makes score comparable across inventory sizes.
     per_cert={cert['id']:0 for cert in certs}
@@ -566,7 +573,9 @@ def explain_with_llm():
            'Return JSON object {"recommendations":[{"finding_id":"exact supplied ID",'
            '"priority":1,"explanation":"plain-language explanation tied to supplied evidence"}]}. '
            'Priority 1 is most urgent; use unique integer ranks. Do not add findings, '
-           'change severities, invent evidence, or include credentials.')},
+           'change severities, invent evidence, or include credentials. '
+           'Use conditional language for possible impacts. Never say that an outage, '
+           'attack, or compromise occurred unless the supplied evidence says so.')},
                    {'role':'user','content':prompt}]}
     try:
         if provider=='gemini':
@@ -704,3 +713,15 @@ def scan_registered_endpoint():
     result=scan_tls_endpoint('127.0.0.1',8443,'service-01.demo.local')
     audit('endpoint.scanned',{'endpoint':result['endpoint'],'serial':result['serial'],'chain_valid':result['chain_valid']})
     return result
+
+
+def observe_registered_endpoint():
+    """Probe the fixed sandbox service when its listener is enabled."""
+    if os.environ.get('AEGIS_ENABLE_TLS_DEMO','0')!='1':
+        return {'status':'disabled'}
+    try:
+        result=scan_registered_endpoint()
+    except (OSError, ValueError) as exc:
+        audit('endpoint.scan_unavailable',{'endpoint':'127.0.0.1:8443','reason':type(exc).__name__})
+        return {'status':'unavailable'}
+    return {'status':'observed',**result}
