@@ -47,3 +47,19 @@ def test_acme_approval_requires_operator(client):
     response = client.post(f"/api/incidents/{incident}/approve-local-acme",
         json={"approver": "Demo Operator"})
     assert response.status_code == 401
+
+
+def test_real_acme_request_cannot_run_sandbox_approval_route(client):
+    cert = next(c for c in core.inventory() if c['hostname'] == 'service-01.demo.local')
+    operator = {'X-Aegis-Operator-Token': 'test-operator-only'}
+    response = client.post('/api/certificates/real-acme-request',
+                           json={'certificate_id':cert['id']}, headers=operator)
+    assert response.status_code == 200
+    incident = response.json()['incident_id']
+    assert client.post(f'/api/incidents/{incident}/approve', json={'approver':'Operator'},
+                       headers=operator).status_code == 400
+    assert next(i for i in core.incidents() if i['id']==incident)['status'] == 'pending_approval'
+    assert client.post(f'/api/incidents/{incident}/reject', headers=operator).status_code == 200
+    assert client.post(f'/api/incidents/{incident}/approve-local-acme', json={'approver':'Operator'},
+                       headers=operator).status_code == 409
+    assert not core.verify_revocation(cert['serial'])
